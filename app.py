@@ -272,8 +272,8 @@ if st.button('Delete intern'):
             st.write('Please enter a name and collection ID to delete')
 
 # Display the list of person names
-st.header('Interns in System')
 person_names = list_faces_in_collection(collection_id)
+st.header(f'Interns in System ({len(person_names)})')
 st.write(', '.join(person_names))
 if len(person_names) == 0:
     'No interns added yet.'
