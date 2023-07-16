@@ -214,6 +214,7 @@ with st.expander("Click to view full directions for this site"):
     st.write("- Upload a zip folder of images of program's students at a particular location")
     st.write("- Choose the custom file ending for that location (i.e. '_Jumpstart_Group_1' for a file you want named 'First_Last_2023_Jumpstart_Group_1')")
     st.write("- Click 'Start Renaming' and download a zip folder of the automatically renamed image files")
+
 # Add a person or image, or delete a person
 st.header('Configure Training Data')
 
@@ -302,10 +303,14 @@ if start_processing and uploaded_files:
 
         # Create a dictionary to hold the zip files for each person
         zip_files = {person: zipfile.ZipFile(f'{person}.zip', 'w') for person in st.session_state['person_names']}
+        person_images_dict = {}  # Dictionary to hold list of images for each person
 
         progress_report = st.empty()  # Create a placeholder for the progress report
 
         with st.spinner("Labeling images.."):
+            group_photo_threshold = 15  # Number of people needed to categorize a photo as a group photo
+            person_images_dict['Group Photos'] = []  # Initialize the 'Group Photos' category
+
             for i, file_name in enumerate(os.listdir('temp'), start=1):
                 try:
                     progress_report.text(f"Labeling progress: ({i}/{total_files})")  # Update the text in the placeholder
@@ -315,41 +320,55 @@ if start_processing and uploaded_files:
                         img.save(byte_arr, format='JPEG')  # Or format='PNG' if your images are PNG
                         byte_img = byte_arr.getvalue()
                         detected_persons = find_matching_faces(byte_img, collection_id)
-                        print(f'{file_name}: {", ".join(detected_persons)}')
+
+                        # Check if the photo is a group photo
+                        if len(set(detected_persons)) >= group_photo_threshold:
+                            person_images_dict['Group Photos'].append(file_name)
+                        else:
+                            # Add the image to the list for each detected person
+                            for person in detected_persons:
+                                if person not in person_images_dict:
+                                    person_images_dict[person] = []
+                                person_images_dict[person].append(file_name)
 
                         # Add the image to the zip file of each detected person
-                        for person in detected_persons:
-                            if person not in zip_files:
-                                zip_files[person] = zipfile.ZipFile(f'{collection_id}/{person}.zip', 'w')
-                            file.seek(0)  # Seek back to the start of the file
+                        # for person in detected_persons:
+                        #     if person not in zip_files:
+                        #         zip_files[person] = zipfile.ZipFile(f'{collection_id}/{person}.zip', 'w')
+                        #     file.seek(0)  # Seek back to the start of the file
 
-                            # Generate the new file name
-                            new_file_name = f"{person}_{current_year}_{file_name}"
+                        #     # Generate the new file name
+                        #     new_file_name = f"{person}_{current_year}_{file_name}"
 
-                            zip_files[person].writestr(new_file_name, file.read())
+                        #     zip_files[person].writestr(new_file_name, file.read())
                 except Exception as e:
                     print(f"{file_name} threw an error: {e}")
                     continue
 
-        # Create a zip file to hold all person zip files
-        all_persons_zip = zipfile.ZipFile(f'{collection_id}/all_persons.zip', 'w')
+        # Generate the text file
+        with open(f'{collection_id}/labels.txt', 'w') as f:
+            for person, images in person_images_dict.items():
+                f.write(f'{person}: {", ".join(images)}\n\n')
 
-        total_persons = len(zip_files.items())
-        zip_progress_report = st.empty()  # Create a placeholder for the zip progress report
+        # # Create a zip file to hold all person zip files
+        # all_persons_zip = zipfile.ZipFile(f'{collection_id}/all_persons.zip', 'w')
 
-        with st.spinner("Generating zip folders..."):
-            st.subheader("Download Link:")
-            # Close the individual zip files, add them to the all persons zip file and provide a download link
-            for i, (person, zip_file) in enumerate(zip_files.items(), start=1):
-                zip_file.close()
-                zip_progress_report.text(f"Zip folder progress: ({i}/{total_persons})")
+        # total_persons = len(zip_files.items())
+        # zip_progress_report = st.empty()  # Create a placeholder for the zip progress report
 
-                # Add the individual zip file to the all persons zip file
-                with open(f'{collection_id}/{person}.zip', 'rb') as f:
-                    all_persons_zip.writestr(f'{person}.zip', f.read())
+        # with st.spinner("Generating zip folders..."):
+        #     st.subheader("Download Link:")
+        #     # Close the individual zip files, add them to the all persons zip file and provide a download link
+        #     for i, (person, zip_file) in enumerate(zip_files.items(), start=1):
+        #         zip_file.close()
+        #         zip_progress_report.text(f"Zip folder progress: ({i}/{total_persons})")
+
+        #         # Add the individual zip file to the all persons zip file
+        #         with open(f'{collection_id}/{person}.zip', 'rb') as f:
+        #             all_persons_zip.writestr(f'{person}.zip', f.read())
 
         # Close the all persons zip file
-        all_persons_zip.close()
+        # all_persons_zip.close()
 
         st.session_state['download_zip_created'] = True  
 
@@ -358,13 +377,21 @@ if start_processing and uploaded_files:
 
 # Replace the markdown link with a download button
 if 'download_zip_created' in st.session_state and st.session_state['download_zip_created']:  
-    with open(f'{collection_id}/all_persons.zip', 'rb') as f:
+    # with open(f'{collection_id}/all_persons.zip', 'rb') as f:
+    #     st.download_button(
+    #         label="Download all labeled images",
+    #         data=f.read(),
+    #         file_name='all_persons.zip',
+    #         mime='application/zip'
+    #     )
+    with open(f'{collection_id}/labels.txt', 'r') as f:
         st.download_button(
-            label="Download all images",
+            label="Download all textual labels",
             data=f.read(),
-            file_name='all_persons.zip',
-            mime='application/zip'
+            file_name='labels.txt',
+            mime='text/plain'
         )
+
 
 st.header('Naming Tool')
 uploaded_zip_file = st.file_uploader('Upload a zip file to rename files', type=['zip'])
