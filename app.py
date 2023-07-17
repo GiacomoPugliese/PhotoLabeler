@@ -371,7 +371,7 @@ if start_processing and folder_id:
                             copied_file = service.files().copy(fileId=file['id'], body={"name": new_file_name, "parents": [folder['id']]}).execute()
 
                     except Exception as e:
-                        print(f"{file['name']} threw an error: {e}")
+                        st.write(f"{file['name']} threw an error: {e}")
                         continue
 
             # Generate the text file
