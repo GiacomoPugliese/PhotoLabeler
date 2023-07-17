@@ -213,9 +213,8 @@ with st.expander("Click to view full directions for this site"):
     st.subheader("Interns in System")
     st.write("- Displays all of the interns currently in your program's AI")
     st.subheader("Detect Interns in Photos")
-    st.write("- Upload one or more zip folders containing pictures of the interns within the program")
-    st.write("- Click 'Start Processing' and allow the AI to sort the images into individual student folders (may take a while)")
-    st.write("- Download the zip folder with all of the sorted images to your computer")
+    st.write("- Insert the folder link of your google drive containing your photos")
+    st.write("- Click 'Start Processing' and allow the AI to sort the images into individual student folders directly into the drive (may take a while)")
     st.subheader("Renaming tool")
     st.write("- Upload a zip folder of images of program's students at a particular location")
     st.write("- Choose the custom file ending for that location (i.e. '_Jumpstart_Group_1' for a file you want named 'First_Last_2023_Jumpstart_Group_1')")
@@ -327,7 +326,7 @@ if start_processing and folder_id:
                         while done is False:
                             _, done = downloader.next_chunk()
                         
-                        if file['name'].endswith('.heic'):
+                        if file['name'].endswith('.heic') or file['name'].endswith('.HEIC'):
                             heif_file = pyheif.read(fh.getvalue())
                             img = Image.frombytes(heif_file.mode, heif_file.size, heif_file.data, "raw", heif_file.mode)
                             byte_arr = io.BytesIO()
@@ -371,7 +370,7 @@ if start_processing and folder_id:
                             copied_file = service.files().copy(fileId=file['id'], body={"name": new_file_name, "parents": [folder['id']]}).execute()
 
                     except Exception as e:
-                        print(f"{file['name']} threw an error: {e}")
+                        st.write(f"{file['name']} threw an error: {e}")
                         continue
 
             # Generate the text file
