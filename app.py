@@ -300,6 +300,7 @@ if start_processing and folder_link:
         else:
             st.error("Please enter a collection id!")
     else:
+        folder_id = match.group(1)
         # Build the service
         creds = service_account.Credentials.from_service_account_file('credentials.json')
         service = build('drive', 'v3', credentials=creds)
