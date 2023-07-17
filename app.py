@@ -330,9 +330,13 @@ if start_processing and folder_link:
                                                 fields='nextPageToken, files(id, name)',
                                                 pageToken=page_token).execute()
                 items = response.get('files', [])
+                with st.spinner("Retrieving data from drive"):
+                    total_files_response = service.files().list(q=f"'{folder_id}' in parents").execute()
+                    total_files = len(total_files_response.get('files', []))
+
                 for i, file in enumerate(items, start=1):
                     try:
-                        progress_report.text(f"Labeling progress: ({i}/{len(items)})")  # Update the text in the placeholder
+                        progress_report.text(f"Labeling progress: ({i}/{total_files})")  # Update the text in the placeholder
                         request = service.files().get_media(fileId=file['id'])
 
                         # Download and process the image
