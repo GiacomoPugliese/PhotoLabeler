@@ -215,6 +215,7 @@ with st.expander("Click to view full directions for this site"):
     st.write("- Displays all of the interns currently in your program's AI")
     st.subheader("Detect Interns in Photos")
     st.write("- Insert the folder link of your google drive containing your photos")
+    st.write("- Share the folder with giacomo@photolabeler-393105.iam.gserviceaccount.com")
     st.write("- Click 'Start Processing' and allow the AI to sort the images into individual student folders directly into the drive (may take a while)")
     st.subheader("Renaming tool")
     st.write("- Insert the folder links of your google drive containing program's students at a particular location")
@@ -306,7 +307,6 @@ if start_processing and folder_link:
     
     if(collection_id == 'your-default-collection-id' or match is None):
         if match is None:
-            st.write("hi!")
             st.error('Invalid Google Drive link. Please make sure the link is correct.')
         else:
             st.error("Please enter a collection id!")
