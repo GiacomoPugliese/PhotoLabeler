@@ -392,54 +392,45 @@ if 'download_zip_created' in st.session_state and st.session_state['download_zip
         )
 
 st.header('Naming Tool')
-uploaded_zip_file = st.file_uploader('Upload a zip file to rename files', type=['zip'])
+folder_id_rename = st.text_input('Enter Google Drive Folder ID for Renaming')
 file_name_ending = st.text_input('Enter your custom file name ending')
 start_renaming = st.button('Start Renaming')
 
-if start_renaming and uploaded_zip_file:
+if start_renaming and folder_id_rename:
     if(collection_id == 'your-default-collection-id'):
         st.error("Please enter a collection id!")
     else:
-        try:
-            # Create a temporary directory to hold the extracted files
-            if not os.path.exists('temp'):
-                os.makedirs('temp')
+        # Build the service
+        creds = service_account.Credentials.from_service_account_file('credentials.json')
+        service = build('drive', 'v3', credentials=creds)
 
-            # Extract the zip file
-            with ZipFile(uploaded_zip_file, 'r') as zip_ref:
-                zip_ref.extractall('temp')
+        # Request files in the folder
+        results = service.files().list(q=f"'{folder_id_rename}' in parents").execute()
+        items = results.get('files', [])
 
-            # Create a new zip file to hold the renamed files
-            renamed_files_zip = ZipFile(f'{collection_id}/renamed_files.zip', 'w', compression=ZIP_STORED)
-        
-            for file_name in os.listdir('temp'):
-                print(file_name)
-                if '_2023_' in file_name:
-                    # Remove all characters past '_2023_' in the file name
-                    new_file_name = re.sub(r'_2023_.*', '', file_name)
+        if not items:
+            st.error("No files found.")
+        else:
+            total_files = len(items)
 
-                    # Append the custom file name ending
-                    new_file_name += f'_2023_{file_name_ending}'
+            progress_report = st.empty()  # Create a placeholder for the progress report
 
-                    # Add the file to the new zip file with the new name
-                    renamed_files_zip.write(os.path.join('temp', file_name), arcname=new_file_name)
+            for i, file in enumerate(items, start=1):
+                try:
+                    progress_report.text(f"Renaming progress: ({i}/{total_files})")  # Update the text in the placeholder
 
-            # Close the zip file
-            renamed_files_zip.close()
+                    if '_2023_' in file['name']:
+                        # Remove all characters past '_2023_' in the file name
+                        new_file_name = re.sub(r'_2023_.*', '', file['name'])
 
-            # Cleanup the temp directory
-            shutil.rmtree('temp')
+                        # Append the custom file name ending
+                        new_file_name += f'_2023_{file_name_ending}'
 
-            st.session_state['renamed_files_created'] = True
-        except:
-            st.error("Please make sure you've uploaded a zip folder of images!")
+                        # Rename the file
+                        service.files().update(fileId=file['id'], body={"name": new_file_name}).execute()
 
-# Provide a download button for the renamed files zip
-if 'renamed_files_created' in st.session_state and st.session_state['renamed_files_created']:  
-    with open(f'{collection_id}/renamed_files.zip', 'rb') as f:
-        st.download_button(
-            label="Download renamed files",
-            data=f.read(),
-            file_name='renamed_files.zip',
-            mime='application/zip'
-        )
+                except Exception as e:
+                    st.write(f"Error renaming {file['name']}: {e}")
+                    continue
+
+            st.success("All files renamed successfully!")
