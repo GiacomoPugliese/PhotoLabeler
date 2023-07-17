@@ -327,7 +327,7 @@ if start_processing and folder_id:
                         while done is False:
                             _, done = downloader.next_chunk()
                         
-                        if file['name'].endswith('.heic'):
+                        if file['name'].endswith('.heic') or file['name'].endswith('.HEIC'):
                             heif_file = pyheif.read(fh.getvalue())
                             img = Image.frombytes(heif_file.mode, heif_file.size, heif_file.data, "raw", heif_file.mode)
                             byte_arr = io.BytesIO()
