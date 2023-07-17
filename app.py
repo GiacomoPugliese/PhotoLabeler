@@ -306,6 +306,7 @@ if start_processing and folder_link:
     
     if(collection_id == 'your-default-collection-id' or match is None):
         if match is None:
+            st.write("hi!")
             st.error('Invalid Google Drive link. Please make sure the link is correct.')
         else:
             st.error("Please enter a collection id!")
