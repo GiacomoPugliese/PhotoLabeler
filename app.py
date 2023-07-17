@@ -419,12 +419,15 @@ if start_renaming and folder_id_rename:
                 try:
                     progress_report.text(f"Renaming progress: ({i}/{total_files})")  # Update the text in the placeholder
 
+                    # Extract file extension
+                    file_ext = os.path.splitext(file['name'])[1]
+
                     if '_2023_' in file['name']:
                         # Remove all characters past '_2023_' in the file name
                         new_file_name = re.sub(r'_2023_.*', '', file['name'])
 
-                        # Append the custom file name ending
-                        new_file_name += f'_2023_{file_name_ending}'
+                        # Append the custom file name ending and the file extension
+                        new_file_name += f'_2023_{file_name_ending}{file_ext}'
 
                         # Rename the file
                         service.files().update(fileId=file['id'], body={"name": new_file_name}).execute()
@@ -434,3 +437,4 @@ if start_renaming and folder_id_rename:
                     continue
 
             st.success("All files renamed successfully!")
+
