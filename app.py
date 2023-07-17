@@ -21,6 +21,7 @@ from googleapiclient.http import MediaIoBaseDownload
 from google.oauth2 import service_account
 from datetime import datetime
 import pyheif
+import re
 
 logging.basicConfig(level=logging.INFO)
 
@@ -286,12 +287,18 @@ if len(person_names) == 0:
 st.button("Refresh page")
 
 st.header('Detect Interns in Photos')
-folder_id = st.text_input('Enter Google Drive Folder ID')
+folder_link = st.text_input('Enter Google Drive Folder link')
 start_processing = st.button('Start Processing')
 
-if start_processing and folder_id:
-    if(collection_id == 'your-default-collection-id'):
-        st.error("Please enter a collection id!")
+if start_processing and folder_link:
+    # Match any characters after the last slash in the URL
+    match = re.search(r'\/([a-zA-Z0-9-_]+)$', folder_link)
+    
+    if(collection_id == 'your-default-collection-id' or match is None):
+        if match is None:
+            st.error('Invalid Google Drive link. Please make sure the link is correct.')
+        else:
+            st.error("Please enter a collection id!")
     else:
         # Build the service
         creds = service_account.Credentials.from_service_account_file('credentials.json')
