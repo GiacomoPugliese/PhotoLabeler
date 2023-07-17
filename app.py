@@ -15,6 +15,12 @@ import shutil
 import datetime
 import re
 from zipfile import ZipFile, ZIP_STORED
+import google.auth
+from googleapiclient.discovery import build
+from googleapiclient.http import MediaIoBaseDownload
+from google.oauth2 import service_account
+from datetime import datetime
+import pyheif
 
 logging.basicConfig(level=logging.INFO)
 
@@ -280,110 +286,104 @@ if len(person_names) == 0:
     'No interns added yet.'
 st.button("Refresh page")
 
-# Get the current year
-current_year = datetime.datetime.now().year
-
 st.header('Detect Interns in Photos')
-uploaded_files = st.file_uploader('Upload zip files containing photos', type=['zip'], accept_multiple_files=True)
+folder_id = st.text_input('Enter Google Drive Folder ID')
 start_processing = st.button('Start Processing')
 
-if start_processing and uploaded_files:
+if start_processing and folder_id:
     if(collection_id == 'your-default-collection-id'):
         st.error("Please enter a collection id!")
     else:
-        # Create a temporary directory to hold the extracted files
-        if not os.path.exists('temp'):
-            os.makedirs('temp')
+        # Build the service
+        creds = service_account.Credentials.from_service_account_file('credentials.json')
+        service = build('drive', 'v3', credentials=creds)
 
-        total_files = 0
-        for uploaded_file in uploaded_files:
-            with zipfile.ZipFile(io.BytesIO(uploaded_file.read()), 'r') as zip_ref:
-                zip_ref.extractall('temp')
-                total_files += len(zip_ref.namelist())
+        # Request files in the folder
+        results = service.files().list(q=f"'{folder_id}' in parents").execute()
+        items = results.get('files', [])
 
-        # Create a dictionary to hold the zip files for each person
-        zip_files = {person: zipfile.ZipFile(f'{person}.zip', 'w') for person in st.session_state['person_names']}
-        person_images_dict = {}  # Dictionary to hold list of images for each person
+        if not items:
+            st.error("No files found.")
+        else:
+            total_files = len(items)
 
-        progress_report = st.empty()  # Create a placeholder for the progress report
+            person_images_dict = {}  # Dictionary to hold list of images for each person
 
-        with st.spinner("Labeling images.."):
-            group_photo_threshold = 15  # Number of people needed to categorize a photo as a group photo
-            person_images_dict['Group Photos'] = []  # Initialize the 'Group Photos' category
+            progress_report = st.empty()  # Create a placeholder for the progress report
 
-            for i, file_name in enumerate(os.listdir('temp'), start=1):
-                try:
-                    progress_report.text(f"Labeling progress: ({i}/{total_files})")  # Update the text in the placeholder
-                    with open(os.path.join('temp', file_name), 'rb') as file:
-                        img = resize_image(file, 1000)  # Adjust the width as needed
-                        byte_arr = io.BytesIO()
-                        img.save(byte_arr, format='JPEG')  # Or format='PNG' if your images are PNG
-                        byte_img = byte_arr.getvalue()
+            with st.spinner("Labeling images.."):
+                group_photo_threshold = 15  # Number of people needed to categorize a photo as a group photo
+                person_images_dict['Group Photos'] = []  # Initialize the 'Group Photos' category
+
+                for i, file in enumerate(items, start=1):
+                    try:
+                        progress_report.text(f"Labeling progress: ({i}/{total_files})")  # Update the text in the placeholder
+                        request = service.files().get_media(fileId=file['id'])
+
+                        # Download and process the image
+                        fh = io.BytesIO()
+                        downloader = MediaIoBaseDownload(fh, request)
+                        done = False
+                        while done is False:
+                            _, done = downloader.next_chunk()
+                        
+                        if file['name'].endswith('.heic'):
+                            heif_file = pyheif.read(fh.getvalue())
+                            img = Image.frombytes(heif_file.mode, heif_file.size, heif_file.data, "raw", heif_file.mode)
+                            byte_arr = io.BytesIO()
+                            img.save(byte_arr, format='JPEG')
+                            byte_img = byte_arr.getvalue()
+                        else:
+                            img = resize_image(fh, 1000)  # Adjust the width as needed
+                            byte_arr = io.BytesIO()
+                            img.save(byte_arr, format='JPEG')  # Or format='PNG' if your images are PNG
+                            byte_img = byte_arr.getvalue()
+
                         detected_persons = find_matching_faces(byte_img, collection_id)
 
                         # Check if the photo is a group photo
                         if len(set(detected_persons)) >= group_photo_threshold:
-                            person_images_dict['Group Photos'].append(file_name)
+                            person_images_dict['Group Photos'].append(file['name'])
+                            persons = ['Group Photos']
                         else:
-                            # Add the image to the list for each detected person
-                            for person in detected_persons:
-                                if person not in person_images_dict:
-                                    person_images_dict[person] = []
-                                person_images_dict[person].append(file_name)
+                            persons = detected_persons
 
-                        # Add the image to the zip file of each detected person
-                        # for person in detected_persons:
-                        #     if person not in zip_files:
-                        #         zip_files[person] = zipfile.ZipFile(f'{collection_id}/{person}.zip', 'w')
-                        #     file.seek(0)  # Seek back to the start of the file
+                        # Add the image to the list for each detected person
+                        for person in set(persons):
+                            if person not in person_images_dict:
+                                person_images_dict[person] = []
+                            person_images_dict[person].append(file['name'])
 
-                        #     # Generate the new file name
-                        #     new_file_name = f"{person}_{current_year}_{file_name}"
+                            # Create or find the person-specific folder and copy the image into it
+                            folder_query = f"name='{person}' and '{folder_id}' in parents"
+                            folder_search = service.files().list(q=folder_query).execute().get('files', [])
+                            if not folder_search:
+                                # Create the folder if it does not exist
+                                metadata = {'name': person, 'mimeType': 'application/vnd.google-apps.folder', 'parents': [folder_id]}
+                                folder = service.files().create(body=metadata, fields='id').execute()
+                            else:
+                                # Use the existing folder
+                                folder = folder_search[0]
 
-                        #     zip_files[person].writestr(new_file_name, file.read())
-                except Exception as e:
-                    print(f"{file_name} threw an error: {e}")
-                    continue
+                            # Copy the file
+                            current_year = datetime.now().year
+                            new_file_name = f"{person}_{current_year}_{file['name']}"
+                            copied_file = service.files().copy(fileId=file['id'], body={"name": new_file_name, "parents": [folder['id']]}).execute()
 
-        # Generate the text file
-        with open(f'{collection_id}/labels.txt', 'w') as f:
-            for person, images in person_images_dict.items():
-                f.write(f'{person}: {", ".join(images)}\n\n')
+                    except Exception as e:
+                        print(f"{file['name']} threw an error: {e}")
+                        continue
 
-        # # Create a zip file to hold all person zip files
-        # all_persons_zip = zipfile.ZipFile(f'{collection_id}/all_persons.zip', 'w')
+            # Generate the text file
+            with open(f'{collection_id}/labels.txt', 'w') as f:
+                for person, images in person_images_dict.items():
+                    f.write(f'{person}: {", ".join(images)}\n\n')
 
-        # total_persons = len(zip_files.items())
-        # zip_progress_report = st.empty()  # Create a placeholder for the zip progress report
-
-        # with st.spinner("Generating zip folders..."):
-        #     st.subheader("Download Link:")
-        #     # Close the individual zip files, add them to the all persons zip file and provide a download link
-        #     for i, (person, zip_file) in enumerate(zip_files.items(), start=1):
-        #         zip_file.close()
-        #         zip_progress_report.text(f"Zip folder progress: ({i}/{total_persons})")
-
-        #         # Add the individual zip file to the all persons zip file
-        #         with open(f'{collection_id}/{person}.zip', 'rb') as f:
-        #             all_persons_zip.writestr(f'{person}.zip', f.read())
-
-        # Close the all persons zip file
-        # all_persons_zip.close()
-
-        st.session_state['download_zip_created'] = True  
-
-        # Cleanup the temp directory
-        shutil.rmtree('temp')
+            st.session_state['download_zip_created'] = True  
 
 # Replace the markdown link with a download button
 if 'download_zip_created' in st.session_state and st.session_state['download_zip_created']:  
-    # with open(f'{collection_id}/all_persons.zip', 'rb') as f:
-    #     st.download_button(
-    #         label="Download all labeled images",
-    #         data=f.read(),
-    #         file_name='all_persons.zip',
-    #         mime='application/zip'
-    #     )
+
     with open(f'{collection_id}/labels.txt', 'r') as f:
         st.download_button(
             label="Download all textual labels",
@@ -391,7 +391,6 @@ if 'download_zip_created' in st.session_state and st.session_state['download_zip
             file_name='labels.txt',
             mime='text/plain'
         )
-
 
 st.header('Naming Tool')
 uploaded_zip_file = st.file_uploader('Upload a zip file to rename files', type=['zip'])
