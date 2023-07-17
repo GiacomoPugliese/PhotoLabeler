@@ -209,16 +209,16 @@ st.title("Leadership Initiatives Photo Labeler")
 with st.expander("Click to view full directions for this site"):
     st.subheader("Configure Training Data")
     st.write("- Either create or sign in to your program by entering a program ID (** a program ID is needed for all parts of the site **)")
-    st.write("- Create student profiles and upload solo images of them to train the AI (** names must be in format 'FIRST_LAST' **)")
-    st.write("- Delete student profile to clear their training data")
+    st.write("- Create student profiles and upload solo images of them to train the AI (** names must be in format FIRST_LAST **)")
+    st.write("- Delete student profile to clear their training data if needed")
     st.subheader("Interns in System")
     st.write("- Displays all of the interns currently in your program's AI")
     st.subheader("Detect Interns in Photos")
     st.write("- Insert the folder link of your google drive containing your photos")
     st.write("- Click 'Start Processing' and allow the AI to sort the images into individual student folders directly into the drive (may take a while)")
     st.subheader("Renaming tool")
-    st.write("- Upload a zip folder of images of program's students at a particular location")
-    st.write("- Choose the custom file ending for that location (i.e. '_Jumpstart_Group_1' for a file you want named 'First_Last_2023_Jumpstart_Group_1')")
+    st.write("- Insert the folder links of your google drive containing program's students at a particular location")
+    st.write("- Choose the custom file ending for that location (i.e. ending would be '_Jumpstart_Group_1' for a file you want named 'Joe_Random_2023_Jumpstart_Group_1')")
     st.write("- Click 'Start Renaming' and download a zip folder of the automatically renamed image files")
 
 # Add a person or image, or delete a person
@@ -286,6 +286,16 @@ if len(person_names) == 0:
     'No interns added yet.'
 st.button("Refresh page")
 
+import re
+from googleapiclient.discovery import build
+from google.oauth2 import service_account
+from googleapiclient.http import MediaIoBaseDownload
+from PIL import Image
+import pyheif
+import io
+import streamlit as st
+from datetime import datetime
+
 st.header('Detect Interns in Photos')
 folder_link = st.text_input('Enter Google Drive Folder link')
 start_processing = st.button('Start Processing')
@@ -305,26 +315,23 @@ if start_processing and folder_link:
         creds = service_account.Credentials.from_service_account_file('credentials.json')
         service = build('drive', 'v3', credentials=creds)
 
-        # Request files in the folder
-        results = service.files().list(q=f"'{folder_id}' in parents").execute()
-        items = results.get('files', [])
+        person_images_dict = {}  # Dictionary to hold list of images for each person
+        person_images_dict['Group Photos'] = []  # Initialize the 'Group Photos' category
+        group_photo_threshold = 15  # Number of people needed to categorize a photo as a group photo
 
-        if not items:
-            st.error("No files found.")
-        else:
-            total_files = len(items)
+        progress_report = st.empty()  # Create a placeholder for the progress report
 
-            person_images_dict = {}  # Dictionary to hold list of images for each person
-
-            progress_report = st.empty()  # Create a placeholder for the progress report
-
-            with st.spinner("Labeling images.."):
-                group_photo_threshold = 15  # Number of people needed to categorize a photo as a group photo
-                person_images_dict['Group Photos'] = []  # Initialize the 'Group Photos' category
-
+        with st.spinner("Labeling images.."):
+            page_token = None
+            while True:
+                response = service.files().list(q=f"'{folder_id}' in parents",
+                                                spaces='drive',
+                                                fields='nextPageToken, files(id, name)',
+                                                pageToken=page_token).execute()
+                items = response.get('files', [])
                 for i, file in enumerate(items, start=1):
                     try:
-                        progress_report.text(f"Labeling progress: ({i}/{total_files})")  # Update the text in the placeholder
+                        progress_report.text(f"Labeling progress: ({i}/{len(items)})")  # Update the text in the placeholder
                         request = service.files().get_media(fileId=file['id'])
 
                         # Download and process the image
@@ -380,6 +387,10 @@ if start_processing and folder_link:
                     except Exception as e:
                         st.write(f"{file['name']} threw an error: {e}")
                         continue
+                
+                page_token = response.get('nextPageToken', None)
+                if page_token is None:
+                    break
 
             # Generate the text file
             with open(f'{collection_id}/labels.txt', 'w') as f:
@@ -398,6 +409,7 @@ if 'download_zip_created' in st.session_state and st.session_state['download_zip
             file_name='labels.txt',
             mime='text/plain'
         )
+
 
 st.header('Naming Tool')
 folder_id_rename = st.text_input('Enter Google Drive Folder ID for Renaming')
