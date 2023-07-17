@@ -351,7 +351,6 @@ start_processing = st.button('Start Processing')
 if start_processing and folder_link:
     # Match any characters after the last slash in the URL
     match = re.search(r'\/([a-zA-Z0-9-_]+)$', folder_link)
-    collection_id = 'your-default-collection-id'  # Set your collection_id here
     
     if(collection_id == 'your-default-collection-id' or match is None):
         if match is None:
