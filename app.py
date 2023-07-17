@@ -21,7 +21,7 @@ from googleapiclient.http import MediaIoBaseDownload
 from google.oauth2 import service_account
 from datetime import datetime
 import pyheif
-import re
+import threading
 
 logging.basicConfig(level=logging.INFO)
 
@@ -197,6 +197,62 @@ def add_training_image_to_person(collection_id, person_name, image):
     if upload_success:
         add_faces_to_collection('giacomo-aws-bucket', object_name, collection_id, object_name)
 
+def process_file(file, service, folder_id, person_images_dict, group_photo_threshold, collection_id):
+    try:
+        request = service.files().get_media(fileId=file['id'])
+        # Download and process the image
+        fh = io.BytesIO()
+        downloader = MediaIoBaseDownload(fh, request)
+        done = False
+        while done is False:
+            _, done = downloader.next_chunk()
+
+        if file['name'].endswith('.heic') or file['name'].endswith('.HEIC'):
+            heif_file = pyheif.read(fh.getvalue())
+            img = Image.frombytes(heif_file.mode, heif_file.size, heif_file.data, "raw", heif_file.mode)
+            byte_arr = io.BytesIO()
+            img.save(byte_arr, format='JPEG')
+            byte_img = byte_arr.getvalue()
+        else:
+            img = resize_image(fh, 1000)  # Adjust the width as needed
+            byte_arr = io.BytesIO()
+            img.save(byte_arr, format='JPEG')  # Or format='PNG' if your images are PNG
+            byte_img = byte_arr.getvalue()
+
+        detected_persons = find_matching_faces(byte_img, collection_id)
+
+        # Check if the photo is a group photo
+        if len(set(detected_persons)) >= group_photo_threshold:
+            person_images_dict['Group Photos'].append(file['name'])
+            persons = ['Group Photos']
+        else:
+            persons = detected_persons
+
+        # Add the image to the list for each detected person
+        for person in set(persons):
+            if person not in person_images_dict:
+                person_images_dict[person] = []
+            person_images_dict[person].append(file['name'])
+
+            # Create or find the person-specific folder and copy the image into it
+            folder_query = f"name='{person}' and '{folder_id}' in parents"
+            folder_search = service.files().list(q=folder_query).execute().get('files', [])
+            if not folder_search:
+                # Create the folder if it does not exist
+                metadata = {'name': person, 'mimeType': 'application/vnd.google-apps.folder', 'parents': [folder_id]}
+                folder = service.files().create(body=metadata, fields='id').execute()
+            else:
+                # Use the existing folder
+                folder = folder_search[0]
+
+            # Copy the file
+            current_year = datetime.now().year
+            new_file_name = f"{person}_{current_year}_{file['name']}"
+            copied_file = service.files().copy(fileId=file['id'], body={"name": new_file_name, "parents": [folder['id']]}).execute()
+
+    except Exception as e:
+        st.write(f"{file['name']} threw an error: {e}")
+
 if 'person_names' not in st.session_state:
     st.session_state['person_names'] = []
     st.session_state['last_uploaded_file'] = None
@@ -287,15 +343,6 @@ if len(person_names) == 0:
     'No interns added yet.'
 st.button("Refresh page")
 
-import re
-from googleapiclient.discovery import build
-from google.oauth2 import service_account
-from googleapiclient.http import MediaIoBaseDownload
-from PIL import Image
-import pyheif
-import io
-import streamlit as st
-from datetime import datetime
 
 st.header('Detect Interns in Photos')
 folder_link = st.text_input('Enter Google Drive Folder link')
@@ -304,6 +351,7 @@ start_processing = st.button('Start Processing')
 if start_processing and folder_link:
     # Match any characters after the last slash in the URL
     match = re.search(r'\/([a-zA-Z0-9-_]+)$', folder_link)
+    collection_id = 'your-default-collection-id'  # Set your collection_id here
     
     if(collection_id == 'your-default-collection-id' or match is None):
         if match is None:
@@ -331,65 +379,16 @@ if start_processing and folder_link:
                                                 pageToken=page_token,
                                                 pageSize=1000).execute()
                 items = response.get('files', [])
-                
+
+                threads = []
                 for i, file in enumerate(items, start=1):
-                    try:
-                        progress_report.text(f"Labeling progress: ({i}/{len(items)})")  # Update the text in the placeholder
-                        request = service.files().get_media(fileId=file['id'])
+                    thread = threading.Thread(target=process_file, args=(file, service, folder_id, person_images_dict, group_photo_threshold, collection_id,))
+                    threads.append(thread)
+                    thread.start()
 
-                        # Download and process the image
-                        fh = io.BytesIO()
-                        downloader = MediaIoBaseDownload(fh, request)
-                        done = False
-                        while done is False:
-                            _, done = downloader.next_chunk()
-                        
-                        if file['name'].endswith('.heic') or file['name'].endswith('.HEIC'):
-                            heif_file = pyheif.read(fh.getvalue())
-                            img = Image.frombytes(heif_file.mode, heif_file.size, heif_file.data, "raw", heif_file.mode)
-                            byte_arr = io.BytesIO()
-                            img.save(byte_arr, format='JPEG')
-                            byte_img = byte_arr.getvalue()
-                        else:
-                            img = resize_image(fh, 1000)  # Adjust the width as needed
-                            byte_arr = io.BytesIO()
-                            img.save(byte_arr, format='JPEG')  # Or format='PNG' if your images are PNG
-                            byte_img = byte_arr.getvalue()
-
-                        detected_persons = find_matching_faces(byte_img, collection_id)
-
-                        # Check if the photo is a group photo
-                        if len(set(detected_persons)) >= group_photo_threshold:
-                            person_images_dict['Group Photos'].append(file['name'])
-                            persons = ['Group Photos']
-                        else:
-                            persons = detected_persons
-
-                        # Add the image to the list for each detected person
-                        for person in set(persons):
-                            if person not in person_images_dict:
-                                person_images_dict[person] = []
-                            person_images_dict[person].append(file['name'])
-
-                            # Create or find the person-specific folder and copy the image into it
-                            folder_query = f"name='{person}' and '{folder_id}' in parents"
-                            folder_search = service.files().list(q=folder_query).execute().get('files', [])
-                            if not folder_search:
-                                # Create the folder if it does not exist
-                                metadata = {'name': person, 'mimeType': 'application/vnd.google-apps.folder', 'parents': [folder_id]}
-                                folder = service.files().create(body=metadata, fields='id').execute()
-                            else:
-                                # Use the existing folder
-                                folder = folder_search[0]
-
-                            # Copy the file
-                            current_year = datetime.now().year
-                            new_file_name = f"{person}_{current_year}_{file['name']}"
-                            copied_file = service.files().copy(fileId=file['id'], body={"name": new_file_name, "parents": [folder['id']]}).execute()
-
-                    except Exception as e:
-                        st.write(f"{file['name']} threw an error: {e}")
-                        continue
+                # Wait for all threads to complete
+                for thread in threads:
+                    thread.join()
                 
                 page_token = response.get('nextPageToken', None)
                 if page_token is None:
