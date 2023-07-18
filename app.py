@@ -29,7 +29,7 @@ import requests
 import json
 from google.oauth2.credentials import Credentials
 import webbrowser
-import pyheif
+# import pyheif
 
 logging.basicConfig(level=logging.INFO)
 
@@ -249,7 +249,8 @@ if st.button("Authenticate Google Account"):
         auth_url = response.json().get('authorization_url')
         
         # Redirect user to the OAuth URL
-        webbrowser.open(auth_url, new=2)
+        # webbrowser.open(auth_url, new=2)
+        st.markdown(f"[Authenticate Google Account]({auth_url})")
         # st.session_state['auth'] = True
 
 if True:    
