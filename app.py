@@ -253,16 +253,16 @@ with st.expander("Authenticate Google Account"):
         st.markdown(f"[Click to begin authentication process]({auth_url})")
         # st.session_state['auth'] = True
 
-    if True:    
-        if st.button("Finalize Google Authentication"):
-            # Request token from the FastAPI backend
-            response = requests.get(f"{'https://photo-labeler-842ac8d73e7a.herokuapp.com'}/token/{collection_id}")
-            if response.status_code == 200:
-                st.session_state['creds'] = response.json().get('creds')
-                print(st.session_state['creds'])
-                st.success("Google account successfully authenticated.")
-            else:
-                st.error('Failed to retrieve credentials')
+if True:    
+    if st.button("Finalize Google Authentication"):
+        # Request token from the FastAPI backend
+        response = requests.get(f"{'https://photo-labeler-842ac8d73e7a.herokuapp.com'}/token/{collection_id}")
+        if response.status_code == 200:
+            st.session_state['creds'] = response.json().get('creds')
+            print(st.session_state['creds'])
+            st.success("Google account successfully authenticated.")
+        else:
+            st.error('Failed to retrieve credentials')
 
 
 # Add a person or image, or delete a person
