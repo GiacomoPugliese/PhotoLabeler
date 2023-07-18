@@ -20,6 +20,15 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload
 from google.oauth2 import service_account
 from datetime import datetime
+import threading
+from multiprocessing import Pool
+from googleapiclient import errors
+import time
+from google_auth_oauthlib.flow import InstalledAppFlow
+import requests
+import json
+from google.oauth2.credentials import Credentials
+import webbrowser
 import pyheif
 
 logging.basicConfig(level=logging.INFO)
@@ -200,6 +209,8 @@ if 'person_names' not in st.session_state:
     st.session_state['person_names'] = []
     st.session_state['last_uploaded_file'] = None
     st.session_state['download_zip_created'] = False
+    st.session_state['creds'] = None
+    # st.session_state['auth'] = False
     # delete_collection('your-collection-id')
     
 
@@ -208,25 +219,54 @@ st.title("Leadership Initiatives Photo Labeler")
 with st.expander("Click to view full directions for this site"):
     st.subheader("Configure Training Data")
     st.write("- Either create or sign in to your program by entering a program ID (** a program ID is needed for all parts of the site **)")
-    st.write("- Create student profiles and upload solo images of them to train the AI (** names must be in format 'FIRST_LAST' **)")
-    st.write("- Delete student profile to clear their training data")
+    st.write("- Create student profiles and upload solo images of them to train the AI (** names must be in format FIRST_LAST **)")
+    st.write("- Delete student profile to clear their training data if needed")
     st.subheader("Interns in System")
     st.write("- Displays all of the interns currently in your program's AI")
     st.subheader("Detect Interns in Photos")
     st.write("- Insert the folder link of your google drive containing your photos")
+    st.write("- Share the folder with giacomo@photolabeler-393105.iam.gserviceaccount.com")
     st.write("- Click 'Start Processing' and allow the AI to sort the images into individual student folders directly into the drive (may take a while)")
     st.subheader("Renaming tool")
-    st.write("- Upload a zip folder of images of program's students at a particular location")
-    st.write("- Choose the custom file ending for that location (i.e. '_Jumpstart_Group_1' for a file you want named 'First_Last_2023_Jumpstart_Group_1')")
+    st.write("- Insert the folder links of your google drive containing program's students at a particular location")
+    st.write("- Choose the custom file ending for that location (i.e. ending would be '_Jumpstart_Group_1' for a file you want named 'Joe_Random_2023_Jumpstart_Group_1')")
     st.write("- Click 'Start Renaming' and download a zip folder of the automatically renamed image files")
+
+
+st.header('User Credentials')
+collection_id = st.text_input("Enter your program ID", "")
+if collection_id == '':
+    collection_id = 'your-default-collection-id'
+collection_id = 'your-collection-id'
+create_collection(collection_id)
+
+if st.button("Authenticate Google Account"):
+
+    # Request OAuth URL from the FastAPI backend
+    response = requests.get(f"{'https://photo-labeler-842ac8d73e7a.herokuapp.com'}/auth?user_id={collection_id}")
+    if response.status_code == 200:
+        # Get the authorization URL from the response
+        auth_url = response.json().get('authorization_url')
+        
+        # Redirect user to the OAuth URL
+        webbrowser.open(auth_url, new=2)
+        # st.session_state['auth'] = True
+
+if True:    
+    if st.button("Finalize Google Authentication"):
+        # Request token from the FastAPI backend
+        response = requests.get(f"{'https://photo-labeler-842ac8d73e7a.herokuapp.com'}/token/{collection_id}")
+        if response.status_code == 200:
+            st.session_state['creds'] = response.json().get('creds')
+            print(st.session_state['creds'])
+            st.success("Google account successfully authenticated.")
+        else:
+            st.error('Failed to retrieve credentials')
+
 
 # Add a person or image, or delete a person
 st.header('Configure Training Data')
 
-collection_id = st.text_input("Enter your program ID", "")
-if collection_id == '':
-    collection_id = 'your-default-collection-id'
-create_collection(collection_id)
 
 # Create a directory named after the collection
 os.makedirs(collection_id, exist_ok=True)
@@ -285,102 +325,188 @@ if len(person_names) == 0:
     'No interns added yet.'
 st.button("Refresh page")
 
+########################################################################################
+#    DETECT SECTION
+
+def make_request_with_exponential_backoff(request):
+    for n in range(0, 5):
+        try:
+            return request.execute()
+        except Exception as e:
+            if isinstance(e, errors.HttpError) and e.resp.status == 403:
+                time.sleep((2 ** n) + random.random())
+            else:
+                raise e
+    print("Request failed after 5 retries")
+    return None
+
+
+def process_file(file, service, folder_id, person_images_dict, group_photo_threshold, collection_id, person_folder_dict):
+    st.write(f"{file['name']} started")
+    try:
+        request = service.files().get_media(fileId=file['id'])
+        # Download and process the image
+        fh = io.BytesIO()
+        downloader = MediaIoBaseDownload(fh, request)
+        done = False
+        while done is False:
+            _, done = downloader.next_chunk()
+
+        if file['name'].endswith('.heic') or file['name'].endswith('.HEIC'):
+            heif_file = pyheif.read(fh.getvalue())
+            img = Image.frombytes(heif_file.mode, heif_file.size, heif_file.data, "raw", heif_file.mode)
+            byte_arr = io.BytesIO()
+            img.save(byte_arr, format='JPEG')
+            byte_img = byte_arr.getvalue()
+        else:
+            img = resize_image(fh, 1000)
+            byte_arr = io.BytesIO()
+            img.save(byte_arr, format='JPEG')
+            byte_img = byte_arr.getvalue()
+
+        detected_persons = find_matching_faces(byte_img, collection_id)
+
+        if len(set(detected_persons)) >= group_photo_threshold:
+            person_images_dict['Group Photos'].append(file['name'])
+            persons = ['Group Photos']
+        else:
+            persons = detected_persons
+
+        for person in set(persons):
+            if person not in person_images_dict:
+                person_images_dict[person] = []
+            person_images_dict[person].append(file['name'])
+
+            # Get the person's folder from the dictionary
+            folder = person_folder_dict[person]
+
+            current_year = datetime.now().year
+            new_file_name = f"{person}_{current_year}_{file['name']}"
+            copied_file = make_request_with_exponential_backoff(service.files().copy(fileId=file['id'], body={"name": new_file_name, "parents": [folder['id']]}))
+
+
+    except Exception as e:
+        st.write(f"{file['name']} threw an error: {e}")
+
+    print(file['name'] + " labeled")
+
+def process_file_wrapper(args):
+    return process_file(*args)
+
 st.header('Detect Interns in Photos')
-folder_id = st.text_input('Enter Google Drive Folder ID')
+folder_link = st.text_input('Enter Google Drive Folder link')
 start_processing = st.button('Start Processing')
 
-if start_processing and folder_id:
-    if(collection_id == 'your-default-collection-id'):
-        st.error("Please enter a collection id!")
+    
+if start_processing:
+    if not folder_link:
+        st.error("Please upload your google drive folder")
+    # elif not st.session_state['auth']:
+    #     st.error("Please authenticate google account")
     else:
-        # Build the service
-        creds = service_account.Credentials.from_service_account_file('credentials.json')
-        service = build('drive', 'v3', credentials=creds)
-
-        # Request files in the folder
-        results = service.files().list(q=f"'{folder_id}' in parents").execute()
-        items = results.get('files', [])
-
-        if not items:
-            st.error("No files found.")
+        match = re.search(r'\/([a-zA-Z0-9-_]+)$', folder_link)
+        if(collection_id == 'your-default-collection-id' or match is None):
+            if match is None:
+                st.error('Invalid Google Drive link. Please make sure the link is correct.')
+            else:
+                st.error("Please enter a collection id!")
         else:
-            total_files = len(items)
+            folder_id = match.group(1)
+            
+            CLIENT_SECRET_FILE = 'credentials.json'
+            API_NAME = 'drive'
+            API_VERSION = 'v3'
+            SCOPES = ['https://www.googleapis.com/auth/drive']
 
-            person_images_dict = {}  # Dictionary to hold list of images for each person
+            # flow = InstalledAppFlow.from_client_secrets_file(CLIENT_SECRET_FILE, SCOPES)
+            # creds = flow.run_local_server(port=8005)
 
-            progress_report = st.empty()  # Create a placeholder for the progress report
+            # Load client secrets from your credential file
+
+            with open(CLIENT_SECRET_FILE, 'r') as f:
+                client_info = json.load(f)['web']
+
+            creds_dict = st.session_state['creds']
+            creds_dict['client_id'] = client_info['client_id']
+            creds_dict['client_secret'] = client_info['client_secret']
+            creds_dict['refresh_token'] = creds_dict.get('_refresh_token')
+            try:
+                # Create Credentials from creds_dict
+                creds = Credentials.from_authorized_user_info(creds_dict)
+
+                # Call the Drive v3 API
+                service = build(API_NAME, API_VERSION, credentials=creds)
+            except:
+                st.error("Please refresh the page and retry Google authentication.")
+
+            # Create a dictionary to store each person's folder
+            with st.spinner("Creating folders"):
+                person_folder_dict = {}
+                for person in person_names:
+                    folder_query = f"name='{person}' and '{folder_id}' in parents and trashed=false"
+                    folder_search = make_request_with_exponential_backoff(service.files().list(q=folder_query))
+                    if not folder_search.get('files', []):
+                        metadata = {'name': person, 'mimeType': 'application/vnd.google-apps.folder', 'parents': [folder_id]}
+                        folder = make_request_with_exponential_backoff(service.files().create(body=metadata, fields='id'))
+                    else:
+                        print("folder detected!")
+                        print(folder_search)  # print the full response
+                        folder = folder_search.get('files', [])[0]
+
+                    person_folder_dict[person] = folder
+
+                person_images_dict = {}
+                person_images_dict['Group Photos'] = []
+                group_photo_threshold = 15
+
+            progress_report = st.empty()
 
             with st.spinner("Labeling images.."):
-                group_photo_threshold = 15  # Number of people needed to categorize a photo as a group photo
-                person_images_dict['Group Photos'] = []  # Initialize the 'Group Photos' category
+                total_files = 0  # initialize total file counter
+                labeled_files = 0  # initialize labeled file counter
+                page_token = None
 
-                for i, file in enumerate(items, start=1):
-                    try:
-                        progress_report.text(f"Labeling progress: ({i}/{total_files})")  # Update the text in the placeholder
-                        request = service.files().get_media(fileId=file['id'])
+                #retreive total amount of files
+                response = make_request_with_exponential_backoff(service.files().list(q=f"'{folder_id}' in parents and trashed=false",
+                                                                                        spaces='drive',
+                                                                                        fields='nextPageToken, files(id, name)',
+                                                                                        pageToken=page_token,
+                                                                                        pageSize=1000))
+                items = response.get('files', [])
+                arguments = [(file, service, folder_id, person_images_dict, group_photo_threshold, collection_id, person_folder_dict,) for file in items]
+                total_files = len(items) - len(person_names)
+                progress_report.text(f"Labeling progress: ({0}/{total_files})")
 
-                        # Download and process the image
-                        fh = io.BytesIO()
-                        downloader = MediaIoBaseDownload(fh, request)
-                        done = False
-                        while done is False:
-                            _, done = downloader.next_chunk()
-                        
-                        if file['name'].endswith('.heic') or file['name'].endswith('.HEIC'):
-                            heif_file = pyheif.read(fh.getvalue())
-                            img = Image.frombytes(heif_file.mode, heif_file.size, heif_file.data, "raw", heif_file.mode)
-                            byte_arr = io.BytesIO()
-                            img.save(byte_arr, format='JPEG')
-                            byte_img = byte_arr.getvalue()
-                        else:
-                            img = resize_image(fh, 1000)  # Adjust the width as needed
-                            byte_arr = io.BytesIO()
-                            img.save(byte_arr, format='JPEG')  # Or format='PNG' if your images are PNG
-                            byte_img = byte_arr.getvalue()
+                #make a request to get rid of the folders first
+                response = make_request_with_exponential_backoff(service.files().list(q=f"'{folder_id}' in parents  and trashed=false", spaces='drive', fields='nextPageToken, files(id, name)', pageToken=page_token,pageSize=len(person_names)))
+                items = response.get('files', [])
+                page_token = response.get('nextPageToken', None)
 
-                        detected_persons = find_matching_faces(byte_img, collection_id)
+                while True:
+                    response = make_request_with_exponential_backoff(service.files().list(q=f"'{folder_id}' in parents and trashed=false",
+                                                                                        spaces='drive', 
+                                                                                        fields='nextPageToken, files(id, name)',
+                                                                                        pageToken=page_token,
+                                                                                        pageSize=10))
+                    items = response.get('files', [])
+                    arguments = [(file, service, folder_id, person_images_dict, group_photo_threshold, collection_id, person_folder_dict,) for file in items]
 
-                        # Check if the photo is a group photo
-                        if len(set(detected_persons)) >= group_photo_threshold:
-                            person_images_dict['Group Photos'].append(file['name'])
-                            persons = ['Group Photos']
-                        else:
-                            persons = detected_persons
+                    with Pool(processes=10) as pool:
+                        pool.map(process_file_wrapper, arguments)
 
-                        # Add the image to the list for each detected person
-                        for person in set(persons):
-                            if person not in person_images_dict:
-                                person_images_dict[person] = []
-                            person_images_dict[person].append(file['name'])
+                    labeled_files += len(items)
+                    progress_report.text(f"Labeling progress: ({labeled_files}/{total_files})")  # update progress bar with the ratio of labeled files to total files
 
-                            # Create or find the person-specific folder and copy the image into it
-                            folder_query = f"name='{person}' and '{folder_id}' in parents"
-                            folder_search = service.files().list(q=folder_query).execute().get('files', [])
-                            if not folder_search:
-                                # Create the folder if it does not exist
-                                metadata = {'name': person, 'mimeType': 'application/vnd.google-apps.folder', 'parents': [folder_id]}
-                                folder = service.files().create(body=metadata, fields='id').execute()
-                            else:
-                                # Use the existing folder
-                                folder = folder_search[0]
+                    page_token = response.get('nextPageToken', None)
+                    if page_token is None:
+                        break
 
-                            # Copy the file
-                            current_year = datetime.now().year
-                            new_file_name = f"{person}_{current_year}_{file['name']}"
-                            copied_file = service.files().copy(fileId=file['id'], body={"name": new_file_name, "parents": [folder['id']]}).execute()
+                with open(f'{collection_id}/labels.txt', 'w') as f:
+                    for person, images in person_images_dict.items():
+                        f.write(f'{person}: {", ".join(images)}\n\n')
 
-                    except Exception as e:
-                        st.write(f"{file['name']} threw an error: {e}")
-                        continue
+                st.session_state['download_zip_created'] = True  
 
-            # Generate the text file
-            with open(f'{collection_id}/labels.txt', 'w') as f:
-                for person, images in person_images_dict.items():
-                    f.write(f'{person}: {", ".join(images)}\n\n')
-
-            st.session_state['download_zip_created'] = True  
-
-# Replace the markdown link with a download button
 if 'download_zip_created' in st.session_state and st.session_state['download_zip_created']:  
 
     with open(f'{collection_id}/labels.txt', 'r') as f:
@@ -390,6 +516,8 @@ if 'download_zip_created' in st.session_state and st.session_state['download_zip
             file_name='labels.txt',
             mime='text/plain'
         )
+
+##############################################################################################
 
 st.header('Naming Tool')
 folder_id_rename = st.text_input('Enter Google Drive Folder ID for Renaming')
