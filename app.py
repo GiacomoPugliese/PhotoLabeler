@@ -250,7 +250,7 @@ with st.expander("Authenticate Google Account"):
         
         # Redirect user to the OAuth URL
         # webbrowser.open(auth_url, new=2)
-        st.markdown(f"[Click to continue to authentication]({auth_url})")
+        st.markdown(f"[Click to begin authentication process]({auth_url})")
         # st.session_state['auth'] = True
 
     if True:    
