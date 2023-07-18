@@ -240,7 +240,7 @@ if collection_id == '':
 collection_id = 'your-collection-id'
 create_collection(collection_id)
 
-if st.button("Authenticate Google Account"):
+with st.expander("Authenticate Google Account"):
 
     # Request OAuth URL from the FastAPI backend
     response = requests.get(f"{'https://photo-labeler-842ac8d73e7a.herokuapp.com'}/auth?user_id={collection_id}")
@@ -250,19 +250,19 @@ if st.button("Authenticate Google Account"):
         
         # Redirect user to the OAuth URL
         # webbrowser.open(auth_url, new=2)
-        st.markdown(f"[Authenticate Google Account]({auth_url})")
+        st.markdown(f"[Click to begin authentication process]({auth_url})")
         # st.session_state['auth'] = True
 
-if True:    
-    if st.button("Finalize Google Authentication"):
-        # Request token from the FastAPI backend
-        response = requests.get(f"{'https://photo-labeler-842ac8d73e7a.herokuapp.com'}/token/{collection_id}")
-        if response.status_code == 200:
-            st.session_state['creds'] = response.json().get('creds')
-            print(st.session_state['creds'])
-            st.success("Google account successfully authenticated.")
-        else:
-            st.error('Failed to retrieve credentials')
+    if True:    
+        if st.button("Finalize Google Authentication"):
+            # Request token from the FastAPI backend
+            response = requests.get(f"{'https://photo-labeler-842ac8d73e7a.herokuapp.com'}/token/{collection_id}")
+            if response.status_code == 200:
+                st.session_state['creds'] = response.json().get('creds')
+                print(st.session_state['creds'])
+                st.success("Google account successfully authenticated.")
+            else:
+                st.error('Failed to retrieve credentials')
 
 
 # Add a person or image, or delete a person
