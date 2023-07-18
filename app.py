@@ -240,7 +240,7 @@ if collection_id == '':
 collection_id = 'your-collection-id'
 create_collection(collection_id)
 
-with st.expander("Authenticate Google Account"):
+if st.button("Authenticate Google Account"):
 
     # Request OAuth URL from the FastAPI backend
     response = requests.get(f"{'https://photo-labeler-842ac8d73e7a.herokuapp.com'}/auth?user_id={collection_id}")
@@ -250,7 +250,7 @@ with st.expander("Authenticate Google Account"):
         
         # Redirect user to the OAuth URL
         # webbrowser.open(auth_url, new=2)
-        st.markdown(f"[Click to begin authentication process]({auth_url})")
+        st.markdown(f"[Authenticate Google Account]({auth_url})")
         # st.session_state['auth'] = True
 
 if True:    
