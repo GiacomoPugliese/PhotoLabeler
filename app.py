@@ -20,13 +20,16 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload
 from google.oauth2 import service_account
 from datetime import datetime
-# import pyheif
 import threading
 from multiprocessing import Pool
 from googleapiclient import errors
 import time
 from google_auth_oauthlib.flow import InstalledAppFlow
-
+import requests
+import json
+from google.oauth2.credentials import Credentials
+import webbrowser
+import pyheif
 
 logging.basicConfig(level=logging.INFO)
 
@@ -206,6 +209,8 @@ if 'person_names' not in st.session_state:
     st.session_state['person_names'] = []
     st.session_state['last_uploaded_file'] = None
     st.session_state['download_zip_created'] = False
+    st.session_state['creds'] = None
+    # st.session_state['auth'] = False
     # delete_collection('your-collection-id')
     
 
@@ -227,13 +232,41 @@ with st.expander("Click to view full directions for this site"):
     st.write("- Choose the custom file ending for that location (i.e. ending would be '_Jumpstart_Group_1' for a file you want named 'Joe_Random_2023_Jumpstart_Group_1')")
     st.write("- Click 'Start Renaming' and download a zip folder of the automatically renamed image files")
 
-# Add a person or image, or delete a person
-st.header('Configure Training Data')
 
+st.header('User Credentials')
 collection_id = st.text_input("Enter your program ID", "")
 if collection_id == '':
     collection_id = 'your-default-collection-id'
+collection_id = 'your-collection-id'
 create_collection(collection_id)
+
+if st.button("Authenticate Google Account"):
+
+    # Request OAuth URL from the FastAPI backend
+    response = requests.get(f"{'https://photo-labeler-842ac8d73e7a.herokuapp.com'}/auth?user_id={collection_id}")
+    if response.status_code == 200:
+        # Get the authorization URL from the response
+        auth_url = response.json().get('authorization_url')
+        
+        # Redirect user to the OAuth URL
+        webbrowser.open(auth_url, new=2)
+        # st.session_state['auth'] = True
+
+if True:    
+    if st.button("Finalize Google Authentication"):
+        # Request token from the FastAPI backend
+        response = requests.get(f"{'https://photo-labeler-842ac8d73e7a.herokuapp.com'}/token/{collection_id}")
+        if response.status_code == 200:
+            st.session_state['creds'] = response.json().get('creds')
+            print(st.session_state['creds'])
+            st.success("Google account successfully authenticated.")
+        else:
+            st.error('Failed to retrieve credentials')
+
+
+# Add a person or image, or delete a person
+st.header('Configure Training Data')
+
 
 # Create a directory named after the collection
 os.makedirs(collection_id, exist_ok=True)
@@ -320,7 +353,11 @@ def process_file(file, service, folder_id, person_images_dict, group_photo_thres
             _, done = downloader.next_chunk()
 
         if file['name'].endswith('.heic') or file['name'].endswith('.HEIC'):
-            pass
+            heif_file = pyheif.read(fh.getvalue())
+            img = Image.frombytes(heif_file.mode, heif_file.size, heif_file.data, "raw", heif_file.mode)
+            byte_arr = io.BytesIO()
+            img.save(byte_arr, format='JPEG')
+            byte_img = byte_arr.getvalue()
         else:
             img = resize_image(fh, 1000)
             byte_arr = io.BytesIO()
@@ -360,85 +397,115 @@ st.header('Detect Interns in Photos')
 folder_link = st.text_input('Enter Google Drive Folder link')
 start_processing = st.button('Start Processing')
 
-if start_processing and folder_link:
-    match = re.search(r'\/([a-zA-Z0-9-_]+)$', folder_link)
-    if(collection_id == 'your-default-collection-id' or match is None):
-        if match is None:
-            st.error('Invalid Google Drive link. Please make sure the link is correct.')
-        else:
-            st.error("Please enter a collection id!")
+    
+if start_processing:
+    if not folder_link:
+        st.error("Please upload your google drive folder")
+    # elif not st.session_state['auth']:
+    #     st.error("Please authenticate google account")
     else:
-        folder_id = match.group(1)
-        
-        CLIENT_SECRET_FILE = 'credentials.json'
-        API_NAME = 'drive'
-        API_VERSION = 'v3'
-        SCOPES = ['https://www.googleapis.com/auth/drive']
+        match = re.search(r'\/([a-zA-Z0-9-_]+)$', folder_link)
+        if(collection_id == 'your-default-collection-id' or match is None):
+            if match is None:
+                st.error('Invalid Google Drive link. Please make sure the link is correct.')
+            else:
+                st.error("Please enter a collection id!")
+        else:
+            folder_id = match.group(1)
+            
+            CLIENT_SECRET_FILE = 'credentials.json'
+            API_NAME = 'drive'
+            API_VERSION = 'v3'
+            SCOPES = ['https://www.googleapis.com/auth/drive']
 
-        flow = InstalledAppFlow.from_client_secrets_file(CLIENT_SECRET_FILE, SCOPES)
-        creds = flow.run_local_server(port=8005)
+            # flow = InstalledAppFlow.from_client_secrets_file(CLIENT_SECRET_FILE, SCOPES)
+            # creds = flow.run_local_server(port=8005)
 
-        # Call the Drive v3 API
-        service = build(API_NAME, API_VERSION, credentials=creds)
+            # Load client secrets from your credential file
 
-        # Create a dictionary to store each person's folder
-        with st.spinner("Creating folders"):
-            person_folder_dict = {}
-            for person in person_names:
-                folder_query = f"name='{person}' and '{folder_id}' in parents"
-                folder_search = make_request_with_exponential_backoff(service.files().list(q=folder_query))
-                if not folder_search.get('files', []):
-                    metadata = {'name': person, 'mimeType': 'application/vnd.google-apps.folder', 'parents': [folder_id]}
-                    folder = make_request_with_exponential_backoff(service.files().create(body=metadata, fields='id'))
-                else:
-                    folder = folder_search.get('files', [])[0]
-                person_folder_dict[person] = folder
+            with open(CLIENT_SECRET_FILE, 'r') as f:
+                client_info = json.load(f)['web']
 
-            person_images_dict = {}
-            person_images_dict['Group Photos'] = []
-            group_photo_threshold = 15
+            creds_dict = st.session_state['creds']
+            creds_dict['client_id'] = client_info['client_id']
+            creds_dict['client_secret'] = client_info['client_secret']
+            creds_dict['refresh_token'] = creds_dict.get('_refresh_token')
+            try:
+                # Create Credentials from creds_dict
+                creds = Credentials.from_authorized_user_info(creds_dict)
 
-        progress_report = st.empty()
+                # Call the Drive v3 API
+                service = build(API_NAME, API_VERSION, credentials=creds)
+            except:
+                st.error("Please refresh the page and retry Google authentication.")
 
-        with st.spinner("Labeling images.."):
-            total_files = 0  # initialize total file counter
-            labeled_files = 0  # initialize labeled file counter
-            page_token = None
+            # Create a dictionary to store each person's folder
+            with st.spinner("Creating folders"):
+                person_folder_dict = {}
+                for person in person_names:
+                    folder_query = f"name='{person}' and '{folder_id}' in parents and trashed=false"
+                    folder_search = make_request_with_exponential_backoff(service.files().list(q=folder_query))
+                    if not folder_search.get('files', []):
+                        metadata = {'name': person, 'mimeType': 'application/vnd.google-apps.folder', 'parents': [folder_id]}
+                        folder = make_request_with_exponential_backoff(service.files().create(body=metadata, fields='id'))
+                    else:
+                        print("folder detected!")
+                        print(folder_search)  # print the full response
+                        folder = folder_search.get('files', [])[0]
 
-            #retreive total amount of files
-            response = make_request_with_exponential_backoff(service.files().list(q=f"'{folder_id}' in parents",
-                                                                                     spaces='drive',
-                                                                                     fields='nextPageToken, files(id, name)',
-                                                                                     pageToken=page_token,
-                                                                                     pageSize=1000))
-            items = response.get('files', [])
-            arguments = [(file, service, folder_id, person_images_dict, group_photo_threshold, collection_id, person_folder_dict,) for file in items]
-            total_files = len(items)
-            progress_report.text(f"Labeling progress: ({0}/{total_files})")
-            while True:
-                response = make_request_with_exponential_backoff(service.files().list(q=f"'{folder_id}' in parents",
-                                                                                     spaces='drive',
-                                                                                     fields='nextPageToken, files(id, name)',
-                                                                                     pageToken=page_token,
-                                                                                     pageSize=20))
+                    person_folder_dict[person] = folder
+
+                person_images_dict = {}
+                person_images_dict['Group Photos'] = []
+                group_photo_threshold = 15
+
+            progress_report = st.empty()
+
+            with st.spinner("Labeling images.."):
+                total_files = 0  # initialize total file counter
+                labeled_files = 0  # initialize labeled file counter
+                page_token = None
+
+                #retreive total amount of files
+                response = make_request_with_exponential_backoff(service.files().list(q=f"'{folder_id}' in parents and trashed=false",
+                                                                                        spaces='drive',
+                                                                                        fields='nextPageToken, files(id, name)',
+                                                                                        pageToken=page_token,
+                                                                                        pageSize=1000))
                 items = response.get('files', [])
                 arguments = [(file, service, folder_id, person_images_dict, group_photo_threshold, collection_id, person_folder_dict,) for file in items]
+                total_files = len(items) - len(person_names)
+                progress_report.text(f"Labeling progress: ({0}/{total_files})")
 
-                with Pool(processes=20) as pool:
-                    pool.map(process_file_wrapper, arguments)
-
-                labeled_files += len(items)
-                progress_report.text(f"Labeling progress: ({labeled_files}/{total_files})")  # update progress bar with the ratio of labeled files to total files
-
+                #make a request to get rid of the folders first
+                response = make_request_with_exponential_backoff(service.files().list(q=f"'{folder_id}' in parents  and trashed=false", spaces='drive', fields='nextPageToken, files(id, name)', pageToken=page_token,pageSize=len(person_names)))
+                items = response.get('files', [])
                 page_token = response.get('nextPageToken', None)
-                if page_token is None:
-                    break
 
-            with open(f'{collection_id}/labels.txt', 'w') as f:
-                for person, images in person_images_dict.items():
-                    f.write(f'{person}: {", ".join(images)}\n\n')
+                while True:
+                    response = make_request_with_exponential_backoff(service.files().list(q=f"'{folder_id}' in parents and trashed=false",
+                                                                                        spaces='drive', 
+                                                                                        fields='nextPageToken, files(id, name)',
+                                                                                        pageToken=page_token,
+                                                                                        pageSize=10))
+                    items = response.get('files', [])
+                    arguments = [(file, service, folder_id, person_images_dict, group_photo_threshold, collection_id, person_folder_dict,) for file in items]
 
-            st.session_state['download_zip_created'] = True  
+                    with Pool(processes=10) as pool:
+                        pool.map(process_file_wrapper, arguments)
+
+                    labeled_files += len(items)
+                    progress_report.text(f"Labeling progress: ({labeled_files}/{total_files})")  # update progress bar with the ratio of labeled files to total files
+
+                    page_token = response.get('nextPageToken', None)
+                    if page_token is None:
+                        break
+
+                with open(f'{collection_id}/labels.txt', 'w') as f:
+                    for person, images in person_images_dict.items():
+                        f.write(f'{person}: {", ".join(images)}\n\n')
+
+                st.session_state['download_zip_created'] = True  
 
 if 'download_zip_created' in st.session_state and st.session_state['download_zip_created']:  
 
