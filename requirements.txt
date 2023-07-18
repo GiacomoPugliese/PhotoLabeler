@@ -1,6 +1,6 @@
 streamlit
 boto3
-Pillow
+pillow
 botocore
 google-auth
 google-auth-oauthlib
