@@ -1,9 +1,10 @@
 streamlit
 boto3
-pillow
+Pillow
 botocore
 google-auth
-google-auth-oauthlib
-google-auth-httplib2
 google-api-python-client
-pyheif
+google-auth-httplib2
+google-auth-oauthlib
+requests
+streamlit-javascript
