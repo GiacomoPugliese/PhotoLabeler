@@ -29,6 +29,10 @@ import requests
 import json
 from google.oauth2.credentials import Credentials
 import webbrowser
+import random
+from PIL import ImageOps, ExifTags
+import uuid
+import glob
 # import pyheif
 
 logging.basicConfig(level=logging.INFO)
@@ -205,13 +209,94 @@ def add_training_image_to_person(collection_id, person_name, image):
     if upload_success:
         add_faces_to_collection('giacomo-aws-bucket', object_name, collection_id, object_name)
 
+def make_request_with_exponential_backoff(request):
+    for n in range(0, 5):
+        try:
+            return request.execute()
+        except Exception as e:
+            if isinstance(e, errors.HttpError) and e.resp.status == 403:
+                time.sleep((2 ** n) + random.random())
+            else:
+                raise e
+    print("Request failed after 5 retries")
+    try:
+        return request.execute()
+    except:
+        return None
+
+def sanitize_name(name):
+    """Sanitize names to match AWS requirements for ExternalImageId"""
+    # Remove everything after a hyphen, an underscore or ".jpg"
+    name = re.sub(r' -.*|_.*|.jpg', '', name)
+    # Keep only alphabets, spaces, and hyphens
+    name = re.sub(r'[^a-zA-Z \-]', '', name)
+    # Replace hyphens and spaces with underscores
+    name = re.sub(r'[- ]', '_', name)
+    # Replace multiple underscores with a single underscore
+    name = re.sub(r'[_]+', '_', name)
+    # Remove leading underscore if it exists
+    if name.startswith('_'):
+        name = name[1:]
+    return name
+
+def correct_image_orientation(image):
+    try:
+        for orientation in ExifTags.TAGS.keys():
+            if ExifTags.TAGS[orientation] == 'Orientation':
+                break
+        exif = dict(image._getexif().items())
+
+        if exif[orientation] == 3:
+            image = image.rotate(180, expand=True)
+        elif exif[orientation] == 6:
+            image = image.rotate(270, expand=True)
+        elif exif[orientation] == 8:
+            image = image.rotate(90, expand=True)
+    except (AttributeError, KeyError, IndexError):
+        print("not corrected")
+        # In case of exceptions, the image is left as is
+        pass
+    return image
+
+def consolidate_labels(collection_id):
+    # Dictionary to store labels
+    labels_dict = {}
+
+    # Iterate over all text files in the labels directory
+    for filename in glob.glob(f'{collection_id}/labels/*.txt'):
+        with open(filename, 'r') as f:
+            # Read the labels from the file
+            line = f.readline().strip()
+            if ': ' in line:
+                image_name, persons = line.split(': ')
+                persons_list = persons.split(', ') if persons else []
+            else:
+                image_name = line[:-1]  # remove the trailing colon
+                persons_list = []
+
+            # Append the labels to the dictionary
+            for person in persons_list:
+                if person not in labels_dict:
+                    labels_dict[person] = []
+                labels_dict[person].append(image_name)
+
+        # Delete the file after processing
+        os.remove(filename)
+
+    # Write the consolidated labels to the final text file
+    with open(f'{collection_id}/labels.txt', 'w') as f:
+        for person, images in labels_dict.items():
+            f.write(f'{person}: {", ".join(images)}\n\n')
+
+    st.session_state['download_zip_created'] = True
+
 if 'person_names' not in st.session_state:
     st.session_state['person_names'] = []
     st.session_state['last_uploaded_file'] = None
     st.session_state['download_zip_created'] = False
     st.session_state['creds'] = None
+    delete_collection('your-colleciton-id')
     # st.session_state['auth'] = False
-    # delete_collection('your-collection-id')
     
 
 st.title("Leadership Initiatives Photo Labeler")
@@ -237,7 +322,7 @@ st.header('User Credentials')
 collection_id = st.text_input("Enter your program ID", "")
 if collection_id == '':
     collection_id = 'your-default-collection-id'
-collection_id = 'your-collection-id'
+# collection_id = 'your-collection-id'
 create_collection(collection_id)
 
 if st.button("Authenticate Google Account"):
@@ -272,6 +357,96 @@ st.header('Configure Training Data')
 # Create a directory named after the collection
 os.makedirs(collection_id, exist_ok=True)
 
+st.subheader("Add training data using google drive folder")
+# Drive directory link for bulk training data
+training_data_directory_link = st.text_input("Enter a Google Drive directory link for bulk training data")
+
+if st.button('Process Training Data'):
+    # Google Drive service setup
+    CLIENT_SECRET_FILE = 'credentials.json'
+    API_NAME = 'drive'
+    API_VERSION = 'v3'
+    SCOPES = ['https://www.googleapis.com/auth/drive']
+
+    with open(CLIENT_SECRET_FILE, 'r') as f:
+        client_info = json.load(f)['web']
+
+    creds_dict = st.session_state['creds']
+    creds_dict['client_id'] = client_info['client_id']
+    creds_dict['client_secret'] = client_info['client_secret']
+    creds_dict['refresh_token'] = creds_dict.get('_refresh_token')
+
+    # Create Credentials from creds_dict
+    creds = Credentials.from_authorized_user_info(creds_dict)
+
+    # Call the Drive v3 API
+    service = build(API_NAME, API_VERSION, credentials=creds)
+    # Extracting the folder ID from the link
+    training_data_directory_id = training_data_directory_link.split('/')[-1]
+
+    # Get all the sub-folders (interns' folders)
+    query = f"'{training_data_directory_id}' in parents and trashed = false"
+    intern_folders = service.files().list(q=query).execute().get('files', [])
+    progress_report = st.empty()
+    i = 1
+    for folder in intern_folders:
+        print(folder['id'])
+        # Get all the images in the intern's folder
+        query = f"'{folder['id']}' in parents and (mimeType='image/jpeg' or mimeType='image/png') and trashed = false"
+        intern_images = service.files().list(q=query).execute().get('files', [])
+        progress_report.text(f"Labeling progress: ({i}/{len(intern_folders)})")
+        i = i +1
+        # Iterate over intern's images and find one with 'bio' in the file name
+        for img in intern_images:
+            # Check if the file name contains 'bio'
+            if 'bio' in img['name'].lower():  # Case-insensitive search
+                # Get the image
+                image_id = img['id']
+                print(img['name'])
+                request = service.files().get_media(fileId=image_id)
+                fh = io.BytesIO()
+                downloader = MediaIoBaseDownload(fh, request)
+                done = False
+                while done is False:
+                    _, done = downloader.next_chunk()
+                
+                # Save BytesIO object as an image file temporarily
+                with open('temp_img.jpg', 'wb') as out:
+                    out.write(fh.getvalue())
+                
+                # Open image file with PIL, correct its orientation and resize it
+                img = Image.open('temp_img.jpg')
+                img = correct_image_orientation(img)
+                img = resize_image('temp_img.jpg', 1000)
+                
+                # Save the corrected and resized image to a BytesIO object
+                byte_arr = io.BytesIO()
+                img.save(byte_arr, format='JPEG')
+                byte_img = byte_arr.getvalue()
+                
+                # Save the corrected and resized image locally
+                img.save('training_img.jpg')
+                # Get the intern's name from the folder name
+                intern_name = folder['name']
+                sanitized_intern_name = sanitize_name(intern_name)
+                # Check if person already exists
+                if sanitized_intern_name not in list_faces_in_collection(collection_id):
+                    # If not, add the intern to the collection with the training image
+                    with open('training_img.jpg', 'rb') as img_file:
+                        upload_success = upload_file_to_s3(img_file, 'giacomo-aws-bucket', sanitized_intern_name)
+                        if upload_success:
+                            add_faces_to_collection('giacomo-aws-bucket', sanitized_intern_name, collection_id, sanitized_intern_name)
+                            st.session_state['person_names'].append(sanitized_intern_name)
+                            print(f'Person {sanitized_intern_name} added successfully')
+                        else:
+                            print('Failed to upload image')
+                else:
+                    # If the person already exists, add the image to the person's existing images in the collection
+                    add_training_image_to_person(collection_id, sanitized_intern_name, 'training_img.jpg')
+                    print(f'Image added to existing person {sanitized_intern_name}')
+                break  # Exit the loop as we've found a suitable image
+
+st.subheader("Add training data manually")
 person_name = st.text_input("Enter the intern's name")
 person_image = st.file_uploader('Upload a solo image of the intern', type=['jpg', 'png'])
 
@@ -302,6 +477,9 @@ if st.button('Add image'):
         else:
             st.write('Please enter a name, upload an image, and provide a collection ID')
 
+
+
+
 if st.button('Delete intern'):
     if(collection_id == 'your-default-collection-id'):
         st.error("Please enter a collection id!")
@@ -329,22 +507,11 @@ st.button("Refresh page")
 ########################################################################################
 #    DETECT SECTION
 
-def make_request_with_exponential_backoff(request):
-    for n in range(0, 5):
-        try:
-            return request.execute()
-        except Exception as e:
-            if isinstance(e, errors.HttpError) and e.resp.status == 403:
-                time.sleep((2 ** n) + random.random())
-            else:
-                raise e
-    print("Request failed after 5 retries")
-    return None
-
-
 def process_file(file, service, folder_id, person_images_dict, group_photo_threshold, collection_id, person_folder_dict):
     st.write(f"{file['name']} started")
     try:
+        # Initialize persons
+        persons = []
         request = service.files().get_media(fileId=file['id'])
         # Download and process the image
         fh = io.BytesIO()
@@ -389,124 +556,128 @@ def process_file(file, service, folder_id, person_images_dict, group_photo_thres
     except Exception as e:
         st.write(f"{file['name']} threw an error: {e}")
 
-    print(file['name'] + " labeled")
+    # Generate a unique filename using uuid library
+    unique_filename = str(uuid.uuid4()) + '.txt'
+    with open(f'{collection_id}/labels/{unique_filename}', 'w') as f:
+        # Write the image name and persons detected to the file
+        f.write(f"{file['name']}: {', '.join(set(persons))}")
+
+    print(f"{file['name']}: {', '.join(set(persons))}")
 
 def process_file_wrapper(args):
     return process_file(*args)
 
 st.header('Detect Interns in Photos')
-folder_link = st.text_input('Enter Google Drive Folder link')
+folder_links = st.text_input('Enter Google Drive Folder links (comma separated)')
+destination_folder_link = st.text_input('Enter Google Drive Destination Folder link (Optional)')
 start_processing = st.button('Start Processing')
 
-    
 if start_processing:
-    if not folder_link:
-        st.error("Please upload your google drive folder")
-    # elif not st.session_state['auth']:
-    #     st.error("Please authenticate google account")
+    if not folder_links:
+        st.error("Please upload your google drive folders")
     else:
-        match = re.search(r'\/([a-zA-Z0-9-_]+)$', folder_link)
-        if(collection_id == 'your-default-collection-id' or match is None):
-            if match is None:
-                st.error('Invalid Google Drive link. Please make sure the link is correct.')
+        folders = [x.strip() for x in folder_links.split(',')]
+        match_dest = re.search(r'\/([a-zA-Z0-9-_]+)$', destination_folder_link) if destination_folder_link else None
+        folder_ids = []
+        for folder_link in folders:
+            match = re.search(r'\/([a-zA-Z0-9-_]+)$', folder_link)
+            if(collection_id == 'your-default-collection-id' or match is None):
+                if match is None:
+                    st.error(f'Invalid Google Drive link: {folder_link}. Please make sure the link is correct.')
+                else:
+                    st.error("Please enter a collection id!")
             else:
-                st.error("Please enter a collection id!")
-        else:
-            folder_id = match.group(1)
-            
-            CLIENT_SECRET_FILE = 'credentials.json'
-            API_NAME = 'drive'
-            API_VERSION = 'v3'
-            SCOPES = ['https://www.googleapis.com/auth/drive']
+                folder_id = match.group(1)
+                folder_ids.append(folder_id)
 
-            # flow = InstalledAppFlow.from_client_secrets_file(CLIENT_SECRET_FILE, SCOPES)
-            # creds = flow.run_local_server(port=8005)
+        # If destination_folder_link is provided and valid, replace folder_id with destination_folder_id
+        destination_folder_id = match_dest.group(1) if match_dest else folder_ids[0]
 
-            # Load client secrets from your credential file
+        CLIENT_SECRET_FILE = 'credentials.json'
+        API_NAME = 'drive'
+        API_VERSION = 'v3'
+        SCOPES = ['https://www.googleapis.com/auth/drive']
 
-            with open(CLIENT_SECRET_FILE, 'r') as f:
-                client_info = json.load(f)['web']
+        with open(CLIENT_SECRET_FILE, 'r') as f:
+            client_info = json.load(f)['web']
 
-            creds_dict = st.session_state['creds']
-            creds_dict['client_id'] = client_info['client_id']
-            creds_dict['client_secret'] = client_info['client_secret']
-            creds_dict['refresh_token'] = creds_dict.get('_refresh_token')
-            try:
-                # Create Credentials from creds_dict
-                creds = Credentials.from_authorized_user_info(creds_dict)
+        creds_dict = st.session_state['creds']
+        creds_dict['client_id'] = client_info['client_id']
+        creds_dict['client_secret'] = client_info['client_secret']
+        creds_dict['refresh_token'] = creds_dict.get('_refresh_token')
+        try:
+            # Create Credentials from creds_dict
+            creds = Credentials.from_authorized_user_info(creds_dict)
 
-                # Call the Drive v3 API
-                service = build(API_NAME, API_VERSION, credentials=creds)
-            except:
-                st.error("Please refresh the page and retry Google authentication.")
+            # Call the Drive v3 API
+            service = build(API_NAME, API_VERSION, credentials=creds)
+        except:
+            st.error("Please refresh the page and retry Google authentication.")
 
-            # Create a dictionary to store each person's folder
-            with st.spinner("Creating folders"):
-                person_folder_dict = {}
-                for person in person_names:
-                    folder_query = f"name='{person}' and '{folder_id}' in parents and trashed=false"
-                    folder_search = make_request_with_exponential_backoff(service.files().list(q=folder_query))
-                    if not folder_search.get('files', []):
-                        metadata = {'name': person, 'mimeType': 'application/vnd.google-apps.folder', 'parents': [folder_id]}
-                        folder = make_request_with_exponential_backoff(service.files().create(body=metadata, fields='id'))
-                    else:
-                        print("folder detected!")
-                        print(folder_search)  # print the full response
-                        folder = folder_search.get('files', [])[0]
+        # Create a dictionary to store each person's folder
+        with st.spinner("Creating folders"):
+            person_folder_dict = {}
+            for person in person_names:
+                folder_query = f"name='{person}' and '{destination_folder_id}' in parents and trashed=false"
+                folder_search = make_request_with_exponential_backoff(service.files().list(q=folder_query))
+                if not folder_search.get('files', []):
+                    metadata = {'name': person, 'mimeType': 'application/vnd.google-apps.folder', 'parents': [destination_folder_id]}
+                    folder = make_request_with_exponential_backoff(service.files().create(body=metadata, fields='id'))
+                else:
+                    folder = folder_search.get('files', [])[0]
 
-                    person_folder_dict[person] = folder
+                person_folder_dict[person] = folder
 
-                person_images_dict = {}
-                person_images_dict['Group Photos'] = []
-                group_photo_threshold = 15
+            person_images_dict = {}
+            person_images_dict['Group Photos'] = []
+            group_photo_threshold = 15
 
-            progress_report = st.empty()
+        progress_report = st.empty()
 
-            with st.spinner("Labeling images.."):
-                total_files = 0  # initialize total file counter
-                labeled_files = 0  # initialize labeled file counter
+        with st.spinner("Labeling images.."):
+            if not os.path.exists(f'{collection_id}/labels'):
+                os.makedirs(f'{collection_id}/labels')
+            total_files = 0
+            labeled_files = 0
+            for folder_id in folder_ids:
                 page_token = None
 
-                #retreive total amount of files
-                response = make_request_with_exponential_backoff(service.files().list(q=f"'{folder_id}' in parents and trashed=false",
+                # retrieve total amount of files
+                response = make_request_with_exponential_backoff(service.files().list(q=f"'{folder_id}' in parents and trashed=false and mimeType != 'application/vnd.google-apps.folder'",
                                                                                         spaces='drive',
                                                                                         fields='nextPageToken, files(id, name)',
                                                                                         pageToken=page_token,
                                                                                         pageSize=1000))
                 items = response.get('files', [])
-                arguments = [(file, service, folder_id, person_images_dict, group_photo_threshold, collection_id, person_folder_dict,) for file in items]
-                total_files = len(items) - len(person_names)
-                progress_report.text(f"Labeling progress: ({0}/{total_files})")
+                total_files += len(items)
 
-                #make a request to get rid of the folders first
-                response = make_request_with_exponential_backoff(service.files().list(q=f"'{folder_id}' in parents  and trashed=false", spaces='drive', fields='nextPageToken, files(id, name)', pageToken=page_token,pageSize=len(person_names)))
-                items = response.get('files', [])
-                page_token = response.get('nextPageToken', None)
+            progress_report.text(f"Labeling progress: ({0}/{total_files})")
+
+            for folder_id in folder_ids:
+                page_token = None
 
                 while True:
-                    response = make_request_with_exponential_backoff(service.files().list(q=f"'{folder_id}' in parents and trashed=false",
+                    response = make_request_with_exponential_backoff(service.files().list(q=f"'{folder_id}' in parents and trashed=false and mimeType != 'application/vnd.google-apps.folder'",
                                                                                         spaces='drive', 
                                                                                         fields='nextPageToken, files(id, name)',
                                                                                         pageToken=page_token,
                                                                                         pageSize=10))
                     items = response.get('files', [])
-                    arguments = [(file, service, folder_id, person_images_dict, group_photo_threshold, collection_id, person_folder_dict,) for file in items]
+                    arguments = [(file, service, destination_folder_id, person_images_dict, group_photo_threshold, collection_id, person_folder_dict,) for file in items]
 
                     with Pool(processes=10) as pool:
                         pool.map(process_file_wrapper, arguments)
 
                     labeled_files += len(items)
-                    progress_report.text(f"Labeling progress: ({labeled_files}/{total_files})")  # update progress bar with the ratio of labeled files to total files
+                    progress_report.text(f"Labeling progress: ({labeled_files}/{total_files})")
 
                     page_token = response.get('nextPageToken', None)
                     if page_token is None:
                         break
 
-                with open(f'{collection_id}/labels.txt', 'w') as f:
-                    for person, images in person_images_dict.items():
-                        f.write(f'{person}: {", ".join(images)}\n\n')
+            consolidate_labels(collection_id)
 
-                st.session_state['download_zip_created'] = True  
+            st.session_state['download_zip_created'] = True  
 
 if 'download_zip_created' in st.session_state and st.session_state['download_zip_created']:  
 
@@ -517,6 +688,8 @@ if 'download_zip_created' in st.session_state and st.session_state['download_zip
             file_name='labels.txt',
             mime='text/plain'
         )
+
+
 
 ##############################################################################################
 
