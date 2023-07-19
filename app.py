@@ -33,6 +33,10 @@ import random
 from PIL import ImageOps, ExifTags
 import uuid
 import glob
+from streamlit_javascript import st_javascript
+import time
+from concurrent.futures import ProcessPoolExecutor, as_completed
+
 # import pyheif
 
 logging.basicConfig(level=logging.INFO)
@@ -295,9 +299,9 @@ if 'person_names' not in st.session_state:
     st.session_state['last_uploaded_file'] = None
     st.session_state['download_zip_created'] = False
     st.session_state['creds'] = None
-    delete_collection('your-colleciton-id')
-    # st.session_state['auth'] = False
-    
+    # delete_collection('your-colleciton-id')
+    st.session_state['begin_auth'] = False
+    st.session_state['final_auth'] = False
 
 st.title("Leadership Initiatives Photo Labeler")
 
@@ -325,29 +329,48 @@ if collection_id == '':
 # collection_id = 'your-collection-id'
 create_collection(collection_id)
 
-if st.button("Authenticate Google Account"):
-
-    # Request OAuth URL from the FastAPI backend
-    response = requests.get(f"{'https://photo-labeler-842ac8d73e7a.herokuapp.com'}/auth?user_id={collection_id}")
-    if response.status_code == 200:
-        # Get the authorization URL from the response
-        auth_url = response.json().get('authorization_url')
-        
-        # Redirect user to the OAuth URL
-        # webbrowser.open(auth_url, new=2)
-        st.markdown(f"[Authenticate Google Account]({auth_url})")
-        # st.session_state['auth'] = True
-
-if True:    
-    if st.button("Finalize Google Authentication"):
-        # Request token from the FastAPI backend
-        response = requests.get(f"{'https://photo-labeler-842ac8d73e7a.herokuapp.com'}/token/{collection_id}")
+def nav_to(url):
+    nav_script = """
+        <meta http-equiv="refresh" content="0; url='%s'">
+    """ % (url)
+    st.write(nav_script, unsafe_allow_html=True)
+try:
+    if st.button("Authenticate Google Account"):
+        st.session_state['begin_auth'] = True
+        # Request OAuth URL from the FastAPI backend
+        response = requests.get(f"{'https://photo-labeler-842ac8d73e7a.herokuapp.com'}/auth?user_id={collection_id}")
         if response.status_code == 200:
-            st.session_state['creds'] = response.json().get('creds')
-            print(st.session_state['creds'])
-            st.success("Google account successfully authenticated.")
-        else:
-            st.error('Failed to retrieve credentials')
+            # Get the authorization URL from the response
+            auth_url = response.json().get('authorization_url')
+            st.markdown(f"""
+                <a href="{auth_url}" target="_blank" style="color: #8cdaf2;">
+                    Click to continue to authentication page
+
+
+                </a>
+                """, unsafe_allow_html=True)
+            st.text("\n\n\n")
+            # Redirect user to the OAuth URL
+            # nav_to(auth_url)
+
+    if st.session_state['begin_auth']:    
+        if st.button("Finalize Google Authentication"):
+            with st.spinner("Finalizing authentication..."):
+                for i in range(5):
+                    # Request token from the FastAPI backend
+                    response = requests.get(f"{'https://photo-labeler-842ac8d73e7a.herokuapp.com'}/token/{collection_id}")
+                    if response.status_code == 200:
+                        st.session_state['creds'] = response.json().get('creds')
+                        print(st.session_state['creds'])
+                        st.success("Google account successfully authenticated.")
+                        st.session_state['final_auth'] = True
+                        break
+                    time.sleep(1)
+            if not st.session_state['final_auth']:
+                st.error('Failed to retrieve credentials. Please refresh page and try again.')
+                st.session_state['begin_auth'] = False
+except:
+    pass
 
 
 # Add a person or image, or delete a person
@@ -385,66 +408,84 @@ if st.button('Process Training Data'):
     training_data_directory_id = training_data_directory_link.split('/')[-1]
 
     # Get all the sub-folders (interns' folders)
-    query = f"'{training_data_directory_id}' in parents and trashed = false"
+    query = f"'{training_data_directory_id}' in parents and trashed = false and mimeType = 'application/vnd.google-apps.folder'"
     intern_folders = service.files().list(q=query).execute().get('files', [])
     progress_report = st.empty()
     i = 1
     for folder in intern_folders:
-        print(folder['id'])
         # Get all the images in the intern's folder
-        query = f"'{folder['id']}' in parents and (mimeType='image/jpeg' or mimeType='image/png') and trashed = false"
+        query = f"'{folder['id']}' in parents and mimeType != 'application/vnd.google-apps.folder' and trashed = false"
         intern_images = service.files().list(q=query).execute().get('files', [])
         progress_report.text(f"Labeling progress: ({i}/{len(intern_folders)})")
         i = i +1
         # Iterate over intern's images and find one with 'bio' in the file name
         for img in intern_images:
-            # Check if the file name contains 'bio'
-            if 'bio' in img['name'].lower():  # Case-insensitive search
-                # Get the image
-                image_id = img['id']
-                print(img['name'])
-                request = service.files().get_media(fileId=image_id)
-                fh = io.BytesIO()
-                downloader = MediaIoBaseDownload(fh, request)
-                done = False
-                while done is False:
-                    _, done = downloader.next_chunk()
-                
-                # Save BytesIO object as an image file temporarily
-                with open('temp_img.jpg', 'wb') as out:
-                    out.write(fh.getvalue())
-                
-                # Open image file with PIL, correct its orientation and resize it
-                img = Image.open('temp_img.jpg')
-                img = correct_image_orientation(img)
-                img = resize_image('temp_img.jpg', 1000)
-                
-                # Save the corrected and resized image to a BytesIO object
-                byte_arr = io.BytesIO()
-                img.save(byte_arr, format='JPEG')
-                byte_img = byte_arr.getvalue()
-                
-                # Save the corrected and resized image locally
-                img.save('training_img.jpg')
-                # Get the intern's name from the folder name
-                intern_name = folder['name']
-                sanitized_intern_name = sanitize_name(intern_name)
-                # Check if person already exists
-                if sanitized_intern_name not in list_faces_in_collection(collection_id):
-                    # If not, add the intern to the collection with the training image
-                    with open('training_img.jpg', 'rb') as img_file:
-                        upload_success = upload_file_to_s3(img_file, 'giacomo-aws-bucket', sanitized_intern_name)
-                        if upload_success:
-                            add_faces_to_collection('giacomo-aws-bucket', sanitized_intern_name, collection_id, sanitized_intern_name)
-                            st.session_state['person_names'].append(sanitized_intern_name)
-                            print(f'Person {sanitized_intern_name} added successfully')
-                        else:
-                            print('Failed to upload image')
-                else:
-                    # If the person already exists, add the image to the person's existing images in the collection
-                    add_training_image_to_person(collection_id, sanitized_intern_name, 'training_img.jpg')
-                    print(f'Image added to existing person {sanitized_intern_name}')
-                break  # Exit the loop as we've found a suitable image
+            try:
+                if 'bio' in img['name'].lower():  # Case-insensitive search
+                    # Get the image
+                    image_id = img['id']
+                    image_name = img['name']
+                    request = service.files().get_media(fileId=image_id)
+                    fh = io.BytesIO()
+                    downloader = MediaIoBaseDownload(fh, request)
+                    done = False
+                    while done is False:
+                        _, done = downloader.next_chunk()
+
+                    # Save the image to a temporary local file
+                    temp_file_path = 'tempo_image.jpg'
+                    with open(temp_file_path, 'wb') as f:
+                        f.write(fh.getvalue())
+                        
+                    # Process image based on its type
+                    if img['name'].endswith('.heic') or img['name'].endswith('.HEIC'):
+                        heif_file = pyheif.read(temp_file_path)
+                        img = Image.frombytes(heif_file.mode, heif_file.size, heif_file.data, "raw", heif_file.mode)
+                    else:
+                        img = Image.open(temp_file_path)
+                        
+                    # Correct orientation and resize image
+                    img = correct_image_orientation(img)
+                    img = resize_image(temp_file_path, 1000)
+
+                    # If image is not RGB, convert it to RGB
+                    if img.mode != 'RGB':
+                        img = img.convert('RGB')
+
+                    # Save the corrected and resized image to a BytesIO object
+                    byte_arr = io.BytesIO()
+                    img.save(byte_arr, format='JPEG')
+                    byte_img = byte_arr.getvalue()
+
+                    # Remember to remove the temporary file if you don't need it anymore
+                    if os.path.exists(temp_file_path):
+                        os.remove(temp_file_path)
+
+                    
+                    # Save the corrected and resized image locally
+                    with open('training_img.jpg', 'wb') as out:
+                        out.write(byte_img)
+                    # Get the intern's name from the folder name
+                    intern_name = folder['name']
+                    sanitized_intern_name = sanitize_name(intern_name)
+                    # Check if person already exists
+                    if sanitized_intern_name not in list_faces_in_collection(collection_id):
+                        # If not, add the intern to the collection with the training image
+                        with open('training_img.jpg', 'rb') as img_file:
+                            upload_success = upload_file_to_s3(img_file, 'giacomo-aws-bucket', sanitized_intern_name)
+                            if upload_success:
+                                add_faces_to_collection('giacomo-aws-bucket', sanitized_intern_name, collection_id, sanitized_intern_name)
+                                st.session_state['person_names'].append(sanitized_intern_name)
+                                print(f'Person {sanitized_intern_name} added successfully')
+                            else:
+                                print('Failed to upload image')
+                    else:
+                        # If the person already exists, add the image to the person's existing images in the collection
+                        add_training_image_to_person(collection_id, sanitized_intern_name, 'training_img.jpg')
+                        print(f'Image added to existing person {sanitized_intern_name}')
+                    break  # Exit the loop as we've found a suitable image
+            except Exception as e:
+                print(f"{image_name} threw an error: {e}")
 
 st.subheader("Add training data manually")
 person_name = st.text_input("Enter the intern's name")
@@ -526,8 +567,11 @@ def process_file(file, service, folder_id, person_images_dict, group_photo_thres
             byte_arr = io.BytesIO()
             img.save(byte_arr, format='JPEG')
             byte_img = byte_arr.getvalue()
-        else:
-            img = resize_image(fh, 1000)
+        else:  # This will cover both .jpg and .png files
+            img_io = io.BytesIO(fh.getvalue())
+            img = resize_image(img_io, 1000)
+            if img.mode != 'RGB':  # Convert to RGB if not already
+                img = img.convert('RGB')
             byte_arr = io.BytesIO()
             img.save(byte_arr, format='JPEG')
             byte_img = byte_arr.getvalue()
@@ -554,7 +598,7 @@ def process_file(file, service, folder_id, person_images_dict, group_photo_thres
 
 
     except Exception as e:
-        st.write(f"{file['name']} threw an error: {e}")
+        print(f"{file['name']} threw an error: {e}")
 
     # Generate a unique filename using uuid library
     unique_filename = str(uuid.uuid4()) + '.txt'
@@ -661,15 +705,17 @@ if start_processing:
                                                                                         spaces='drive', 
                                                                                         fields='nextPageToken, files(id, name)',
                                                                                         pageToken=page_token,
-                                                                                        pageSize=10))
+                                                                                        pageSize=100))
                     items = response.get('files', [])
                     arguments = [(file, service, destination_folder_id, person_images_dict, group_photo_threshold, collection_id, person_folder_dict,) for file in items]
 
-                    with Pool(processes=10) as pool:
-                        pool.map(process_file_wrapper, arguments)
-
-                    labeled_files += len(items)
-                    progress_report.text(f"Labeling progress: ({labeled_files}/{total_files})")
+                    with ProcessPoolExecutor(max_workers=15) as executor:
+                        futures = {executor.submit(process_file_wrapper, arg): arg for arg in arguments}
+                        for future in as_completed(futures):
+                            # Handling the future completion
+                            result = future.result()  # replace with appropriate handling if process_file_wrapper returns something
+                            labeled_files += 1
+                            progress_report.text(f"Labeling progress: ({labeled_files}/{total_files})")
 
                     page_token = response.get('nextPageToken', None)
                     if page_token is None:
