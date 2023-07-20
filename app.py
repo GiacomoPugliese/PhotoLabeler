@@ -38,7 +38,7 @@ import time
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from googleapiclient.http import MediaFileUpload
 import traceback
-import pyheif
+# import pyheif
 
 logging.basicConfig(level=logging.INFO)
 
@@ -379,6 +379,42 @@ def process_file(file, service, folder_id, person_images_dict, group_photo_thres
 
     print(f"{file['name']}: {', '.join(set(persons))}")
 
+def process_heic_file(service, image_id):
+    unique_filename = f'{uuid.uuid4()}.heic'  # Unique filename to avoid conflicts
+    request = service.files().get_media(fileId=image_id)
+    fh = io.FileIO(unique_filename, 'wb')
+    downloader = MediaIoBaseDownload(fh, request)
+    done = False
+    while done is False:
+        _, done = downloader.next_chunk()
+    fh.close()
+
+    # Read HEIF file
+    heif_file = pyheif.read(unique_filename)
+    # Convert to PIL Image
+    image = Image.frombytes(
+        heif_file.mode, 
+        heif_file.size, 
+        heif_file.data,
+        "raw",
+        heif_file.mode,
+        heif_file.stride,
+    )
+
+    # Save as JPEG
+    jpeg_filename = f'{uuid.uuid4()}.jpg' 
+    image.save(jpeg_filename, 'JPEG')
+
+    # Read the saved jpeg file and convert it to bytes
+    with open(jpeg_filename, 'rb') as img_file:
+        byte_img = img_file.read()
+
+    # Delete both the downloaded .heic file and converted .jpg file
+    os.remove(unique_filename)
+    os.remove(jpeg_filename)
+
+    return byte_img
+
 def process_folder(folder, service, interns_without_training_data, collection_id, parent_folder):
     has_training_image = False
     temp_file_path = None
@@ -404,7 +440,7 @@ def process_folder(folder, service, interns_without_training_data, collection_id
     for img in intern_images:
         try:
             if 'bio' in img['name'].lower():
-                image_id = "1eEjjcYSd6qdZSxoFuJtY-BgokdMU5y5N"
+                image_id = img['id']
                 image_name = img['name']
                 request = service.files().get_media(fileId=image_id)
                 fh = io.BytesIO()
@@ -413,14 +449,9 @@ def process_folder(folder, service, interns_without_training_data, collection_id
                 while done is False:
                     _, done = downloader.next_chunk()
 
+                    
                 if image_name.endswith('.heic') or image_name.endswith('.HEIC'):
-                    heif_file = pyheif.read(fh.getvalue())
-                    img = Image.frombytes(heif_file.mode, heif_file.size, heif_file.data, "raw", heif_file.mode)
-                    byte_arr = io.BytesIO()
-                    img.save(byte_arr, format='JPEG')
-                    img.save('converted3.jpg')
-                    byte_img = byte_arr.getvalue()
-                    return byte_img
+                    byte_img = process_heic_file(service, image_id)
                 else:
                     img_io = io.BytesIO(fh.getvalue())
                     img = resize_image(img_io, 1000)
@@ -646,22 +677,17 @@ if st.button('Process Training Data'):
                 }
                 training_images_folder = service.files().create(body=file_metadata, fields='id').execute()
                 training_images_folder_id = training_images_folder['id']
-            
+            with ProcessPoolExecutor(max_workers=15) as executor:
+                futures = []
                 for folder in intern_folders:
-                    process_folder(folder, service, interns_without_training_data, collection_id, training_data_directory_id)
+                    future = executor.submit(process_folder, folder, service, interns_without_training_data, collection_id, training_data_directory_id, )
+                    futures.append(future)
+                
+                for future in as_completed(futures):
+                    # If process_folder returns a result, handle it here
+                    result = future.result()  # replace with appropriate handling if process_folder returns something
                     progress_report.text(f"Training progress: ({i}/{len(intern_folders)})")
                     i = i +1
-            # with ProcessPoolExecutor(max_workers=15) as executor:
-            #     futures = []
-            #     for folder in intern_folders:
-            #         future = executor.submit(process_folder, folder, service, interns_without_training_data, collection_id, training_data_directory_id, )
-            #         futures.append(future)
-                
-            #     for future in as_completed(futures):
-            #         # If process_folder returns a result, handle it here
-            #         result = future.result()  # replace with appropriate handling if process_folder returns something
-            #         progress_report.text(f"Training progress: ({i}/{len(intern_folders)})")
-            #         i = i +1
 
         # After all interns have been processed, if there were interns without training data, display a Streamlit error
         if interns_without_training_data:
