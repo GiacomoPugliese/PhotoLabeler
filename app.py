@@ -352,13 +352,7 @@ def process_folder(folder, service, interns_without_training_data, collection_id
                     _, done = downloader.next_chunk()
 
                 if image_name.endswith('.heic') or image_name.endswith('.HEIC'):
-                    # Handling HEIC images
-                    heif_file = pyheif.read(fh.getvalue())
-                    img = Image.frombytes(heif_file.mode, heif_file.size, heif_file.data, "raw", heif_file.mode)
-                    byte_arr = io.BytesIO()
-                    img.save(byte_arr, format='JPEG')
-                    img.save('converted3.jpg')
-                    byte_img = byte_arr.getvalue()
+                    byte_img = process_file(file, service, file['id'], {}, 69, 'gang', {})
                 else:
                     img_io = io.BytesIO(fh.getvalue())
                     img = resize_image(img_io, 1000)
@@ -373,7 +367,6 @@ def process_folder(folder, service, interns_without_training_data, collection_id
                 sanitized_intern_name = sanitize_name(intern_name)
                 print(sanitized_intern_name)
                 if sanitized_intern_name not in list_faces_in_collection(collection_id):
-                    print("hi!")
                     upload_success = upload_file_to_s3(io.BytesIO(byte_img), 'giacomo-aws-bucket', sanitized_intern_name)
                     if upload_success:
                         print(add_faces_to_collection('giacomo-aws-bucket', sanitized_intern_name, collection_id, sanitized_intern_name))
@@ -693,6 +686,7 @@ def process_file(file, service, folder_id, person_images_dict, group_photo_thres
             img.save(byte_arr, format='JPEG')
             img.save('converted3.jpg')
             byte_img = byte_arr.getvalue()
+            return byte_img
         else:  # This will cover both .jpg and .png files
             img_io = io.BytesIO(fh.getvalue())
             img = resize_image(img_io, 1000)
@@ -870,7 +864,7 @@ if 'download_zip_created' in st.session_state and st.session_state['download_zip
         )
 
 
-
+ 
 ##############################################################################################
 
 st.header('Naming Tool')
