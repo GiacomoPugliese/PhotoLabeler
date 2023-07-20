@@ -397,8 +397,9 @@ def process_folder(folder, service, interns_without_training_data, collection_id
                 # After processing the image and saving to byte_img:
 
                 # Copy the original image to 'Training Images' folder in Google Drive
+                file_extension = os.path.splitext(image_name)[1]  # Extracting the file extension from the original name
                 file_metadata = {
-                    'name': f'{unique_filename}.jpg',
+                    'name': f'{sanitized_intern_name}{file_extension}',  # Using sanitized name and original extension
                     'parents': [training_images_folder_id]
                 }
                 copied_file = service.files().copy(fileId=image_id, body=file_metadata).execute()
