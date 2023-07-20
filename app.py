@@ -390,7 +390,7 @@ def process_folder(folder, service, interns_without_training_data, collection_id
                     print("hi!")
                     upload_success = upload_file_to_s3(io.BytesIO(byte_img), 'giacomo-aws-bucket', sanitized_intern_name)
                     if upload_success:
-                        add_faces_to_collection('giacomo-aws-bucket', sanitized_intern_name, collection_id, sanitized_intern_name)
+                        print(add_faces_to_collection('giacomo-aws-bucket', sanitized_intern_name, collection_id, sanitized_intern_name))
                         print(f'Person {sanitized_intern_name} added successfully')
                     else:
                         print('Failed to upload image')
