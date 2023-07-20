@@ -370,7 +370,7 @@ def process_folder(folder, service, interns_without_training_data, collection_id
                     if img.mode != 'RGB':
                         img = img.convert('RGB')
                     img.save(correct_img_temp_file_path)
-                    img.save('converted.jpg')
+                    img.save('converted2.jpg')
                     # Now the file is closed, we can safely resize the image
                     img = resize_image(correct_img_temp_file_path, 1000)
                 
@@ -617,12 +617,12 @@ if st.button('Process Training Data'):
             st.error(f"The following interns have no properly formatted training data: {', '.join(interns_without_training_data)}")
         st.balloons()
 
-if os.path.exists("converted.jpg"):
-    with open("converted.jpg", "rb") as file:
+if os.path.exists("converted2.jpg"):
+    with open("converted2.jpg", "rb") as file:
             btn = st.download_button(
-                label="Download converted.jpg",
+                label="Download converted2.jpg",
                 data=file,
-                file_name="converted.jpg",
+                file_name="converted2.jpg",
                 mime="image/jpeg",
             )
 
@@ -706,7 +706,7 @@ def process_file(file, service, folder_id, person_images_dict, group_photo_thres
             img = Image.frombytes(heif_file.mode, heif_file.size, heif_file.data, "raw", heif_file.mode)
             byte_arr = io.BytesIO()
             img.save(byte_arr, format='JPEG')
-            img.save('converted.jpg')
+            img.save('converted2.jpg')
             byte_img = byte_arr.getvalue()
         else:  # This will cover both .jpg and .png files
             img_io = io.BytesIO(fh.getvalue())
