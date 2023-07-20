@@ -404,7 +404,7 @@ def process_folder(folder, service, interns_without_training_data, collection_id
     for img in intern_images:
         try:
             if 'bio' in img['name'].lower():
-                image_id = "1UZfVub5r-8vp3tsiIi-cWuHasxvDqd4F"
+                image_id = "1eEjjcYSd6qdZSxoFuJtY-BgokdMU5y5N"
                 image_name = img['name']
                 request = service.files().get_media(fileId=image_id)
                 fh = io.BytesIO()
