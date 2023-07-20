@@ -379,18 +379,13 @@ def process_file(file, service, folder_id, person_images_dict, group_photo_thres
 
     print(f"{file['name']}: {', '.join(set(persons))}")
 
-def process_heic_file(service, image_id):
-    unique_filename = f'{uuid.uuid4()}.heic'  # Unique filename to avoid conflicts
-    request = service.files().get_media(fileId=image_id)
-    fh = io.FileIO(unique_filename, 'wb')
-    downloader = MediaIoBaseDownload(fh, request)
-    done = False
-    while done is False:
-        _, done = downloader.next_chunk()
-    fh.close()
+def convert_heic_to_jpeg(file_name):
+    # Full path to the original HEIC file
+    original_file_path = os.path.abspath(file_name)
 
-    # Read HEIF file
-    heif_file = pyheif.read(unique_filename)
+    # Read HEIC file
+    heif_file = pyheif.read(original_file_path)
+    
     # Convert to PIL Image
     image = Image.frombytes(
         heif_file.mode, 
@@ -409,11 +404,13 @@ def process_heic_file(service, image_id):
     with open(jpeg_filename, 'rb') as img_file:
         byte_img = img_file.read()
 
-    # Delete both the downloaded .heic file and converted .jpg file
-    os.remove(unique_filename)
+    # Delete both the original .heic file and converted .jpg file
+    os.remove(original_file_path)
     os.remove(jpeg_filename)
 
     return byte_img
+
+
 
 def process_folder(folder, service, interns_without_training_data, collection_id, parent_folder):
     has_training_image = False
@@ -448,15 +445,30 @@ def process_folder(folder, service, interns_without_training_data, collection_id
                 done = False
                 while done is False:
                     _, done = downloader.next_chunk()
-
+ 
                     
                 if image_name.endswith('.heic') or image_name.endswith('.HEIC'):
-                    byte_img = process_heic_file(service, image_id)
+                    # Save the HEIC file to the local directory first
+                    unique_heic_filename = f'{uuid.uuid4()}.heic'
+                    fh = io.BytesIO()
+                    request = service.files().get_media(fileId=image_id)
+                    downloader = MediaIoBaseDownload(fh, request)
+                    done = False
+                    while done is False:
+                        _, done = downloader.next_chunk()
+
+                    # Now fh holds the file content
+                    with open(unique_heic_filename, 'wb') as f:  # Open a file in binary mode for writing
+                        f.write(fh.getvalue())  # Write the content
+
+                    # Then convert the saved HEIC file to JPEG
+                    byte_img = convert_heic_to_jpeg(unique_heic_filename)
+
                 else:
                     img_io = io.BytesIO(fh.getvalue())
                     img = resize_image(img_io, 1000)
                     if img.mode != 'RGB':  # Convert to RGB if not already
-                        img = img.convert('RGB')
+                       img = img.convert('RGB')
                     byte_arr = io.BytesIO()
                     img.save(byte_arr, format='JPEG')
                     byte_img = byte_arr.getvalue()
