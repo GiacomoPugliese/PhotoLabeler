@@ -317,6 +317,68 @@ def list_collections(max_results=20):
         collection_ids.remove(default_id)
     return collection_ids
 
+def process_file(file, service, folder_id, person_images_dict, group_photo_threshold, collection_id, person_folder_dict):
+    st.write(f"{file['name']} started")
+    try:
+        # Initialize persons
+        persons = []
+        request = service.files().get_media(fileId=file['id'])
+        # Download and process the image
+        fh = io.BytesIO()
+        downloader = MediaIoBaseDownload(fh, request)
+        done = False
+        while done is False:
+            _, done = downloader.next_chunk()
+
+        if file['name'].endswith('.heic') or file['name'].endswith('.HEIC'):
+            heif_file = pyheif.read(fh.getvalue())
+            img = Image.frombytes(heif_file.mode, heif_file.size, heif_file.data, "raw", heif_file.mode)
+            byte_arr = io.BytesIO()
+            img.save(byte_arr, format='JPEG')
+            img.save('converted3.jpg')
+            byte_img = byte_arr.getvalue()
+            return byte_img
+        else:  # This will cover both .jpg and .png files
+            img_io = io.BytesIO(fh.getvalue())
+            img = resize_image(img_io, 1000)
+            if img.mode != 'RGB':  # Convert to RGB if not already
+                img = img.convert('RGB')
+            byte_arr = io.BytesIO()
+            img.save(byte_arr, format='JPEG')
+            byte_img = byte_arr.getvalue()
+
+        detected_persons = find_matching_faces(byte_img, collection_id)
+
+        if len(set(detected_persons)) >= group_photo_threshold:
+            person_images_dict['Group Photos'].append(file['name'])
+            persons = ['Group Photos']
+        else:
+            persons = detected_persons
+
+        for person in set(persons):
+            if person not in person_images_dict:
+                person_images_dict[person] = []
+            person_images_dict[person].append(file['name'])
+
+            # Get the person's folder from the dictionary
+            folder = person_folder_dict[person]
+
+            current_year = datetime.now().year
+            new_file_name = f"{person}_{current_year}_{file['name']}"
+            copied_file = make_request_with_exponential_backoff(service.files().copy(fileId=file['id'], body={"name": new_file_name, "parents": [folder['id']]}))
+
+
+    except Exception as e:
+        print(f"{file['name']} threw an error: {e}")
+
+    # Generate a unique filename using uuid library
+    unique_filename = str(uuid.uuid4()) + '.txt'
+    with open(f'{collection_id}/labels/{unique_filename}', 'w') as f:
+        # Write the image name and persons detected to the file
+        f.write(f"{file['name']}: {', '.join(set(persons))}")
+
+    print(f"{file['name']}: {', '.join(set(persons))}")
+    
 def process_folder(folder, service, interns_without_training_data, collection_id, parent_folder):
     has_training_image = False
     temp_file_path = None
@@ -665,68 +727,6 @@ st.button("Refresh page")
 
 ########################################################################################
 #    DETECT SECTION
-
-def process_file(file, service, folder_id, person_images_dict, group_photo_threshold, collection_id, person_folder_dict):
-    st.write(f"{file['name']} started")
-    try:
-        # Initialize persons
-        persons = []
-        request = service.files().get_media(fileId=file['id'])
-        # Download and process the image
-        fh = io.BytesIO()
-        downloader = MediaIoBaseDownload(fh, request)
-        done = False
-        while done is False:
-            _, done = downloader.next_chunk()
-
-        if file['name'].endswith('.heic') or file['name'].endswith('.HEIC'):
-            heif_file = pyheif.read(fh.getvalue())
-            img = Image.frombytes(heif_file.mode, heif_file.size, heif_file.data, "raw", heif_file.mode)
-            byte_arr = io.BytesIO()
-            img.save(byte_arr, format='JPEG')
-            img.save('converted3.jpg')
-            byte_img = byte_arr.getvalue()
-            return byte_img
-        else:  # This will cover both .jpg and .png files
-            img_io = io.BytesIO(fh.getvalue())
-            img = resize_image(img_io, 1000)
-            if img.mode != 'RGB':  # Convert to RGB if not already
-                img = img.convert('RGB')
-            byte_arr = io.BytesIO()
-            img.save(byte_arr, format='JPEG')
-            byte_img = byte_arr.getvalue()
-
-        detected_persons = find_matching_faces(byte_img, collection_id)
-
-        if len(set(detected_persons)) >= group_photo_threshold:
-            person_images_dict['Group Photos'].append(file['name'])
-            persons = ['Group Photos']
-        else:
-            persons = detected_persons
-
-        for person in set(persons):
-            if person not in person_images_dict:
-                person_images_dict[person] = []
-            person_images_dict[person].append(file['name'])
-
-            # Get the person's folder from the dictionary
-            folder = person_folder_dict[person]
-
-            current_year = datetime.now().year
-            new_file_name = f"{person}_{current_year}_{file['name']}"
-            copied_file = make_request_with_exponential_backoff(service.files().copy(fileId=file['id'], body={"name": new_file_name, "parents": [folder['id']]}))
-
-
-    except Exception as e:
-        print(f"{file['name']} threw an error: {e}")
-
-    # Generate a unique filename using uuid library
-    unique_filename = str(uuid.uuid4()) + '.txt'
-    with open(f'{collection_id}/labels/{unique_filename}', 'w') as f:
-        # Write the image name and persons detected to the file
-        f.write(f"{file['name']}: {', '.join(set(persons))}")
-
-    print(f"{file['name']}: {', '.join(set(persons))}")
 
 def process_file_wrapper(args):
     return process_file(*args)
