@@ -505,6 +505,7 @@ def process_folder(folder, service, interns_without_training_data, collection_id
 
     if not has_training_image:
         interns_without_training_data.append(folder['name'])
+        print(folder['name'] + 'has no training data!')
 
 
 
