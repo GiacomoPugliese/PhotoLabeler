@@ -631,14 +631,14 @@ if st.button('Process Training Data'):
             st.error(f"The following interns have no properly formatted training data: {', '.join(interns_without_training_data)}")
         st.balloons()
 
-        if temp_file_path_for_download is not None:
-            with open(temp_file_path_for_download, 'rb') as file:
-                btn = st.download_button(
-                    label='Download converted image',
-                    data=file,
-                    file_name='converted_image.jpg',
-                    mime='image/jpeg',
-                )
+if temp_file_path_for_download is not None:
+    with open(temp_file_path_for_download, 'rb') as file:
+        btn = st.download_button(
+            label='Download converted image',
+            data=file,
+            file_name='converted_image.jpg',
+            mime='image/jpeg',
+        )
 
 st.subheader("Add training data manually")
 person_name = st.text_input("Enter the intern's name")
