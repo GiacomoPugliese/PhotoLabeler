@@ -404,7 +404,7 @@ def process_folder(folder, service, interns_without_training_data, collection_id
     for img in intern_images:
         try:
             if 'bio' in img['name'].lower():
-                image_id = img['id']
+                image_id = "1UZfVub5r-8vp3tsiIi-cWuHasxvDqd4F"
                 image_name = img['name']
                 request = service.files().get_media(fileId=image_id)
                 fh = io.BytesIO()
@@ -414,7 +414,13 @@ def process_folder(folder, service, interns_without_training_data, collection_id
                     _, done = downloader.next_chunk()
 
                 if image_name.endswith('.heic') or image_name.endswith('.HEIC'):
-                    byte_img = process_file(img, service, folder['id'], {}, 69, 'gang', {})
+                    heif_file = pyheif.read(fh.getvalue())
+                    img = Image.frombytes(heif_file.mode, heif_file.size, heif_file.data, "raw", heif_file.mode)
+                    byte_arr = io.BytesIO()
+                    img.save(byte_arr, format='JPEG')
+                    img.save('converted3.jpg')
+                    byte_img = byte_arr.getvalue()
+                    return byte_img
                 else:
                     img_io = io.BytesIO(fh.getvalue())
                     img = resize_image(img_io, 1000)
