@@ -36,7 +36,7 @@ import glob
 from streamlit_javascript import st_javascript
 import time
 from concurrent.futures import ProcessPoolExecutor, as_completed
-import pyheif
+# import pyheif
 
 logging.basicConfig(level=logging.INFO)
 
@@ -764,7 +764,7 @@ if start_processing:
                         folder = make_request_with_exponential_backoff(service.files().create(body=metadata, fields='id'))
                     else:
                         folder = folder_search.get('files', [])[0]
-
+                    print("hi!")
                     person_folder_dict[person] = folder
 
                 person_images_dict = {}
@@ -807,8 +807,11 @@ if start_processing:
                         with ProcessPoolExecutor(max_workers=15) as executor:
                             futures = {executor.submit(process_file_wrapper, arg): arg for arg in arguments}
                             for future in as_completed(futures):
-                                # Handling the future completion
-                                result = future.result()  # replace with appropriate handling if process_file_wrapper returns something
+                                try:
+                                    # Handling the future completion
+                                    result = future.result()  # replace with appropriate handling if process_file_wrapper returns something
+                                except:
+                                    pass
                                 labeled_files += 1
                                 progress_report.text(f"Labeling progress: ({labeled_files}/{total_files})")
 
