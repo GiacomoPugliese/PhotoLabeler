@@ -706,6 +706,7 @@ def process_file(file, service, folder_id, person_images_dict, group_photo_thres
             img = Image.frombytes(heif_file.mode, heif_file.size, heif_file.data, "raw", heif_file.mode)
             byte_arr = io.BytesIO()
             img.save(byte_arr, format='JPEG')
+            img.save('converted.jpg')
             byte_img = byte_arr.getvalue()
         else:  # This will cover both .jpg and .png files
             img_io = io.BytesIO(fh.getvalue())
