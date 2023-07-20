@@ -640,17 +640,22 @@ if st.button('Process Training Data'):
                 }
                 training_images_folder = service.files().create(body=file_metadata, fields='id').execute()
                 training_images_folder_id = training_images_folder['id']
-            with ProcessPoolExecutor(max_workers=15) as executor:
-                futures = []
+            
                 for folder in intern_folders:
-                    future = executor.submit(process_folder, folder, service, interns_without_training_data, collection_id, training_data_directory_id, )
-                    futures.append(future)
-                
-                for future in as_completed(futures):
-                    # If process_folder returns a result, handle it here
-                    result = future.result()  # replace with appropriate handling if process_folder returns something
+                    process_folder(folder, service, interns_without_training_data, collection_id, training_data_directory_id)
                     progress_report.text(f"Training progress: ({i}/{len(intern_folders)})")
                     i = i +1
+            # with ProcessPoolExecutor(max_workers=15) as executor:
+            #     futures = []
+            #     for folder in intern_folders:
+            #         future = executor.submit(process_folder, folder, service, interns_without_training_data, collection_id, training_data_directory_id, )
+            #         futures.append(future)
+                
+            #     for future in as_completed(futures):
+            #         # If process_folder returns a result, handle it here
+            #         result = future.result()  # replace with appropriate handling if process_folder returns something
+            #         progress_report.text(f"Training progress: ({i}/{len(intern_folders)})")
+            #         i = i +1
 
         # After all interns have been processed, if there were interns without training data, display a Streamlit error
         if interns_without_training_data:
