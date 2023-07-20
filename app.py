@@ -356,32 +356,18 @@ def process_folder(folder, service, interns_without_training_data, collection_id
                     # Handling HEIC images
                     heif_file = pyheif.read(fh.getvalue())
                     img = Image.frombytes(heif_file.mode, heif_file.size, heif_file.data, "raw", heif_file.mode)
-                else:
-                    # Handling non-HEIC images
-                    img = Image.open(io.BytesIO(fh.getvalue()))
-
-        
-                # img = correct_image_orientation(img)
-
-                # Save the corrected image to a temporary file
-                correct_img_temp_file = tempfile.NamedTemporaryFile(suffix=".jpg", delete=False)
-                with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as correct_img_temp_file:
-                    correct_img_temp_file_path = correct_img_temp_file.name
-                    if img.mode != 'RGB':
-                        img = img.convert('RGB')
-                    img.save(correct_img_temp_file_path)
+                    byte_arr = io.BytesIO()
+                    img.save(byte_arr, format='JPEG')
                     img.save('converted2.jpg')
-                    # Now the file is closed, we can safely resize the image
-                    img = resize_image(correct_img_temp_file_path, 1000)
-                
-                os.unlink(correct_img_temp_file_path)  # Removing the temporary file after using it
-
-                if img.mode != 'RGB':
-                    img = img.convert('RGB')
-
-                byte_arr = io.BytesIO()
-                img.save(byte_arr, format='JPEG')
-                byte_img = byte_arr.getvalue()
+                    byte_img = byte_arr.getvalue()
+                else:
+                    img_io = io.BytesIO(fh.getvalue())
+                    img = resize_image(img_io, 1000)
+                    if img.mode != 'RGB':  # Convert to RGB if not already
+                        img = img.convert('RGB')
+                    byte_arr = io.BytesIO()
+                    img.save(byte_arr, format='JPEG')
+                    byte_img = byte_arr.getvalue()
 
                 intern_name = folder['name']
                 print(intern_name)
