@@ -351,8 +351,14 @@ def process_folder(folder, service, interns_without_training_data, collection_id
                 while done is False:
                     _, done = downloader.next_chunk()
 
-                # Handling image in memory
-                img = Image.open(io.BytesIO(fh.getvalue()))
+                if image_name.endswith('.heic') or image_name.endswith('.HEIC'):
+                    # Handling HEIC images
+                    heif_file = pyheif.read(fh.getvalue())
+                    img = Image.frombytes(heif_file.mode, heif_file.size, heif_file.data, "raw", heif_file.mode)
+                else:
+                    # Handling non-HEIC images
+                    img = Image.open(io.BytesIO(fh.getvalue()))
+
                 img = correct_image_orientation(img)
 
                 # Save the corrected image to a temporary file
