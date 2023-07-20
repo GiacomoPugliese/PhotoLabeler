@@ -318,6 +318,7 @@ def list_collections(max_results=20):
     return collection_ids
 
 def process_folder(folder, service, interns_without_training_data, collection_id, parent_folder):
+    import pyheif
     has_training_image = False
     temp_file_path = None
     unique_filename = None
