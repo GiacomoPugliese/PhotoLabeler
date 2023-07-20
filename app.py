@@ -94,7 +94,8 @@ def delete_collection(collection_id):
     try:
         response = client.delete_collection(CollectionId=collection_id)
     except ClientError as e:
-        logging.error(e)
+        # logging.error(e)
+        st.error("Program ID not found")
         raise e
     
 def create_collection(collection_id):
@@ -425,23 +426,16 @@ with st.expander("Click to view full directions for this site"):
 
 st.header('User Credentials')
 st.subheader("Program Login")
-collection_id = st.text_input("Enter your program ID", "")
-if collection_id == '':
-    collection_id = 'your-default-collection-id'
-# collection_id = 'your-collection-id'
-create_collection(collection_id)
-col1, col2, col3, col4= st.columns(4)
+
+col1, col2= st.columns(2)
 deleted_collection = 0
-with col1:
-    if st.button("Delete this program") and collection_id != 'your-default-collection-id':
-        delete_collection(collection_id)
-        collection_id = 'your-default-collection-id'
-        deleted_collection = 1
-if(deleted_collection == 1):
-    st.info("Program deleted from system")
-    deleted_collection = 0
 display_programs = 0
-with col2:
+
+with col1:
+    collection_id = st.text_input("Enter your program ID to sign in", "")
+    if collection_id == '':
+        collection_id = 'your-default-collection-id'
+    create_collection(collection_id)
     if st.button("View programs"):
         collections = list_collections()
         if collections:
@@ -449,11 +443,25 @@ with col2:
         else:
             display_programs = 2
 
+with col2:
+    deleted_program = st.text_input("Enter program ID to delete")
+    if st.button("Delete this program") and deleted_program != 'your-default-collection-id':
+            if(deleted_program not in list_collections()):
+                st.error("Program ID doesn't exist")
+            else:
+                delete_collection(deleted_program)
+                deleted_collection = 1
+
 if(display_programs == 1):
     st.info(f"Current programs: {', '.join(collections)}")
     display_programs = 0
 elif(display_programs == 2):
     st.info("No programs created yet!")
+
+if(deleted_collection == 1):
+    st.info("Program deleted from system")
+    deleted_collection = 0
+
 
 
 st.subheader("Google authentication")
