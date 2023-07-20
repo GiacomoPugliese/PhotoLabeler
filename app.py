@@ -361,7 +361,7 @@ def process_folder(folder, service, interns_without_training_data, collection_id
                     img = Image.open(io.BytesIO(fh.getvalue()))
 
         
-                img = correct_image_orientation(img)
+                # img = correct_image_orientation(img)
 
                 # Save the corrected image to a temporary file
                 correct_img_temp_file = tempfile.NamedTemporaryFile(suffix=".jpg", delete=False)
