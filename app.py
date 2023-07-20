@@ -362,17 +362,6 @@ def process_folder(folder, service, interns_without_training_data, collection_id
 
         
                 img = correct_image_orientation(img)
-                # Save the corrected image to a temporary file
-                correct_img_temp_file = tempfile.NamedTemporaryFile(suffix=".jpg", delete=False)
-                with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as correct_img_temp_file:
-                    correct_img_temp_file_path = correct_img_temp_file.name
-                    if img.mode != 'RGB':
-                        img = img.convert('RGB')
-                    img.save(correct_img_temp_file_path)
-
-                    # Save path for download
-                    global temp_file_path_for_download
-                    temp_file_path_for_download = correct_img_temp_file_path
 
                 # Save the corrected image to a temporary file
                 correct_img_temp_file = tempfile.NamedTemporaryFile(suffix=".jpg", delete=False)
@@ -381,7 +370,7 @@ def process_folder(folder, service, interns_without_training_data, collection_id
                     if img.mode != 'RGB':
                         img = img.convert('RGB')
                     img.save(correct_img_temp_file_path)
-
+                    img.save('converted.jpg')
                     # Now the file is closed, we can safely resize the image
                     img = resize_image(correct_img_temp_file_path, 1000)
                 
@@ -558,9 +547,6 @@ st.subheader("Add training data using google drive folder")
 # Drive directory link for bulk training data
 training_data_directory_link = st.text_input("Enter a Google Drive directory link for bulk training data")
 
-global temp_file_path_for_download
-temp_file_path_for_download = None
-
 if st.button('Process Training Data'):
     if not st.session_state['final_auth']:
         st.error("Please authenticate with google!")
@@ -631,15 +617,14 @@ if st.button('Process Training Data'):
             st.error(f"The following interns have no properly formatted training data: {', '.join(interns_without_training_data)}")
         st.balloons()
 
-if temp_file_path_for_download is not None:
-    with open(temp_file_path_for_download, 'rb') as file:
-        btn = st.download_button(
-            label='Download converted image',
-            data=file,
-            file_name='converted_image.jpg',
-            mime='image/jpeg',
-        )
-
+with open("converted.jpg", "rb") as file:
+    btn = st.download_button(
+        label="Download converted.jpg",
+        data=file,
+        file_name="converted.jpg",
+        mime="image/jpeg",
+    )
+    
 st.subheader("Add training data manually")
 person_name = st.text_input("Enter the intern's name")
 person_image = st.file_uploader('Upload a solo image of the intern', type=['jpg', 'png'])
