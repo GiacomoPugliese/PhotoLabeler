@@ -378,7 +378,7 @@ def process_file(file, service, folder_id, person_images_dict, group_photo_thres
         f.write(f"{file['name']}: {', '.join(set(persons))}")
 
     print(f"{file['name']}: {', '.join(set(persons))}")
-    
+
 def process_folder(folder, service, interns_without_training_data, collection_id, parent_folder):
     has_training_image = False
     temp_file_path = None
@@ -414,7 +414,7 @@ def process_folder(folder, service, interns_without_training_data, collection_id
                     _, done = downloader.next_chunk()
 
                 if image_name.endswith('.heic') or image_name.endswith('.HEIC'):
-                    byte_img = process_file(file, service, file['id'], {}, 69, 'gang', {})
+                    byte_img = process_file(folder, service, folder['id'], {}, 69, 'gang', {})
                 else:
                     img_io = io.BytesIO(fh.getvalue())
                     img = resize_image(img_io, 1000)
