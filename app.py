@@ -36,7 +36,7 @@ import glob
 from streamlit_javascript import st_javascript
 import time
 from concurrent.futures import ProcessPoolExecutor, as_completed
-# import pyheif
+import pyheif
 
 logging.basicConfig(level=logging.INFO)
 
