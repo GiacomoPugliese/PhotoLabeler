@@ -482,6 +482,7 @@ def process_folder(folder, service, interns_without_training_data, collection_id
                     if upload_success:
                         print(add_faces_to_collection('giacomo-aws-bucket', sanitized_intern_name, collection_id, sanitized_intern_name))
                         print(f'Person {sanitized_intern_name} added successfully')
+                        has_training_image = True
                     else:
                         print('Failed to upload image')
                 else:
@@ -496,8 +497,6 @@ def process_folder(folder, service, interns_without_training_data, collection_id
                     'parents': [training_images_folder_id]
                 }
                 copied_file = service.files().copy(fileId=image_id, body=file_metadata).execute()
-
-                has_training_image = True
                 break 
 
         except Exception as e:
