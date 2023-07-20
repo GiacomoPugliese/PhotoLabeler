@@ -36,7 +36,9 @@ import glob
 from streamlit_javascript import st_javascript
 import time
 from concurrent.futures import ProcessPoolExecutor, as_completed
-# import pyheif
+from googleapiclient.http import MediaFileUpload
+import traceback
+import pyheif
 
 logging.basicConfig(level=logging.INFO)
 
@@ -315,10 +317,27 @@ def list_collections(max_results=20):
         collection_ids.remove(default_id)
     return collection_ids
 
-def process_folder(folder, service, interns_without_training_data, collection_id, training_data_directory_id):
-    has_training_image = False 
+def process_folder(folder, service, interns_without_training_data, collection_id, parent_folder):
+    has_training_image = False
+    temp_file_path = None
+    unique_filename = None
+
     query = f"'{folder['id']}' in parents and mimeType != 'application/vnd.google-apps.folder' and trashed = false"
     intern_images = service.files().list(q=query).execute().get('files', [])
+
+    query = f"'{parent_folder}' in parents and name='Training Images' and trashed = false"
+    results = service.files().list(q=query).execute().get('files', [])
+
+    if results:
+        training_images_folder_id = results[0]['id']
+    else:
+        file_metadata = {
+            'name': 'Training Images',
+            'mimeType': 'application/vnd.google-apps.folder',
+            'parents': [parent_folder]
+        }
+        training_images_folder = service.files().create(body=file_metadata, fields='id').execute()
+        training_images_folder_id = training_images_folder['id']
 
     for img in intern_images:
         try:
@@ -332,21 +351,22 @@ def process_folder(folder, service, interns_without_training_data, collection_id
                 while done is False:
                     _, done = downloader.next_chunk()
 
-                # Create a unique temporary file name for each image
-                temp_file = tempfile.NamedTemporaryFile(suffix=".jpg", delete=False)
-                temp_file_path = temp_file.name
-
-                with open(temp_file_path, 'wb') as f:
-                    f.write(fh.getvalue())
-                    
-                if img['name'].endswith('.heic') or img['name'].endswith('.HEIC'):
-                    heif_file = pyheif.read(temp_file_path)
-                    img = Image.frombytes(heif_file.mode, heif_file.size, heif_file.data, "raw", heif_file.mode)
-                else:
-                    img = Image.open(temp_file_path)
-                    
+                # Handling image in memory
+                img = Image.open(io.BytesIO(fh.getvalue()))
                 img = correct_image_orientation(img)
-                img = resize_image(temp_file_path, 1000)
+
+                # Save the corrected image to a temporary file
+                correct_img_temp_file = tempfile.NamedTemporaryFile(suffix=".jpg", delete=False)
+                with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as correct_img_temp_file:
+                    correct_img_temp_file_path = correct_img_temp_file.name
+                    if img.mode != 'RGB':
+                        img = img.convert('RGB')
+                    img.save(correct_img_temp_file_path)
+
+                    # Now the file is closed, we can safely resize the image
+                    img = resize_image(correct_img_temp_file_path, 1000)
+                
+                os.unlink(correct_img_temp_file_path)  # Removing the temporary file after using it
 
                 if img.mode != 'RGB':
                     img = img.convert('RGB')
@@ -355,43 +375,38 @@ def process_folder(folder, service, interns_without_training_data, collection_id
                 img.save(byte_arr, format='JPEG')
                 byte_img = byte_arr.getvalue()
 
-                # Close the temporary file and remove it
-                temp_file.close()
-                os.unlink(temp_file_path)
-
-                # Create a unique filename for this image
-                unique_filename = f'training_img_{uuid.uuid4()}.jpg'
-                with open(unique_filename, 'wb') as out:
-                    out.write(byte_img)
                 intern_name = folder['name']
                 sanitized_intern_name = sanitize_name(intern_name)
 
                 if sanitized_intern_name not in list_faces_in_collection(collection_id):
-                    with open(unique_filename, 'rb') as img_file:
-                        upload_success = upload_file_to_s3(img_file, 'giacomo-aws-bucket', sanitized_intern_name)
-                        if upload_success:
-                            add_faces_to_collection('giacomo-aws-bucket', sanitized_intern_name, collection_id, sanitized_intern_name)
-                            print(f'Person {sanitized_intern_name} added successfully')
-                        else:
-                            print('Failed to upload image')
+                    upload_success = upload_file_to_s3(io.BytesIO(byte_img), 'giacomo-aws-bucket', sanitized_intern_name)
+                    if upload_success:
+                        add_faces_to_collection('giacomo-aws-bucket', sanitized_intern_name, collection_id, sanitized_intern_name)
+                        print(f'Person {sanitized_intern_name} added successfully')
+                    else:
+                        print('Failed to upload image')
                 else:
-                    # add_training_image_to_person(collection_id, sanitized_intern_name, unique_filename)
                     print(f'{sanitized_intern_name} already in system')
-                
-                # Delete the unique file
-                os.remove(unique_filename)
+
+                # After processing the image and saving to byte_img:
+
+                # Copy the original image to 'Training Images' folder in Google Drive
+                file_metadata = {
+                    'name': f'{unique_filename}.jpg',
+                    'parents': [training_images_folder_id]
+                }
+                copied_file = service.files().copy(fileId=image_id, body=file_metadata).execute()
 
                 has_training_image = True
-                break  
+                break 
+
         except Exception as e:
-            try:
-                os.remove(unique_filename)
-            except:
-                pass
             print(f"{image_name} threw an error: {e}")
+            traceback.print_exc()  # This line prints the full traceback
 
     if not has_training_image:
         interns_without_training_data.append(folder['name'])
+
 
 
 if 'last_uploaded_file' not in st.session_state:
@@ -560,11 +575,24 @@ if st.button('Process Training Data'):
             progress_report = st.empty()
             progress_report.text(f"Initializing training data...")
             i = 1
+            # Check if 'Training Images' folder exists in the parent directory. If not, create it.
+            query = f"'{training_data_directory_id}' in parents and name='Training Images' and trashed = false"
+            results = service.files().list(q=query).execute().get('files', [])
 
+            if results:
+                training_images_folder_id = results[0]['id']
+            else:
+                file_metadata = {
+                    'name': 'Training Images',
+                    'mimeType': 'application/vnd.google-apps.folder',
+                    'parents': [training_data_directory_id]
+                }
+                training_images_folder = service.files().create(body=file_metadata, fields='id').execute()
+                training_images_folder_id = training_images_folder['id']
             with ProcessPoolExecutor(max_workers=15) as executor:
                 futures = []
                 for folder in intern_folders:
-                    future = executor.submit(process_folder, folder, service, interns_without_training_data, collection_id, training_data_directory_id)
+                    future = executor.submit(process_folder, folder, service, interns_without_training_data, collection_id, training_data_directory_id, )
                     futures.append(future)
                 
                 for future in as_completed(futures):
