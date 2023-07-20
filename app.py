@@ -408,7 +408,7 @@ def process_folder(folder, service, interns_without_training_data, collection_id
                 break 
 
         except Exception as e:
-            print(f"{image_name} threw an error: {e}")
+            st.write(f"{image_name} threw an error: {e}")
             traceback.print_exc()  # This line prints the full traceback
 
     if not has_training_image:
