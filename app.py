@@ -556,7 +556,7 @@ with st.expander("Click to view full directions for this site"):
     st.subheader("Detect Interns in Photos")
     st.write("- Insert a comma seperated list of the folder links of your google drive containing intern photos")
     st.write("- Add a destination drive folder if you want the labeled intern folders to go somewhere different than the folder containing the input photos.")
-    st.write("- Click 'Start Processing' and allow the AI to sort the images into individual student folders directly into the drive.")
+    st.write("- Click 'Start Labeling' and allow the AI to sort the images into individual student folders directly into the drive.")
     st.write("- When sorting, please don't leave tab. Note that a bad internet connection might retrigger the labeling process from the start (won't duplicate imgages in sorted folders however)")
     st.subheader("Renaming tool")
     st.write("- Insert the folder link of your google drive folder containing program's students at a particular location")
@@ -810,7 +810,8 @@ def process_file_wrapper(args):
 st.header('Detect Interns in Photos')
 folder_links = st.text_area('Enter Google Drive Folder links (comma separated)')
 destination_folder_link = st.text_input('Enter Google Drive Destination Folder link (Optional)')
-start_processing = st.button('Start Processing')
+st.caption("Note: A weak wifi connection can lead to the labeling process being randomly retriggered.")
+start_processing = st.button('Start Labeling')
 
 if start_processing:
     try:
@@ -978,30 +979,34 @@ def extract_drive_id(drive_link):
     return None
 
 
-# Oauth creds loading
 st.header('Naming Tool')
 folder_link_or_id = st.text_input('Enter Google Drive Folder ID or link for Renaming')
 file_name_ending = st.text_input('Enter your custom file name ending')
 start_renaming = st.button('Start Renaming')
 
+# Initial Streamlit layout
+st.header('Naming Tool')
+folder_link_or_id = st.text_input('Enter Google Drive Folder Link or ID for Renaming')
+file_name_ending = st.text_input('Enter your custom file name ending')
+start_renaming = st.button('Start Renaming')
+
 if start_renaming and folder_link_or_id:
     if not folder_link_or_id:
-        st.error("Please upload your google drive folder")
+        st.error("Please upload your Google Drive folder")
     elif not st.session_state.get('final_auth'):
-        st.error("Please authenticate with google!")
+        st.error("Please authenticate with Google!")
     else:
         # Parse folder id from link or use direct id
-        url_parts = urlparse(folder_link_or_id)
-        if url_parts.netloc == "drive.google.com":
-            query = parse_qs(url_parts.query)
-            folder_id_rename = query.get("id")[0]
+        match = re.search(r'\/([a-zA-Z0-9-_]+)$', folder_link_or_id)
+        if match is not None:
+            folder_id_rename = match.group(1)
         else:
             folder_id_rename = folder_link_or_id
-        
+
         # Load client info from the oauth credentials file
         with open('credentials.json', 'r') as f:
             client_info = json.load(f)['web']
-        
+
         creds_dict = st.session_state.get('creds')
         creds_dict['client_id'] = client_info['client_id']
         creds_dict['client_secret'] = client_info['client_secret']
@@ -1013,39 +1018,42 @@ if start_renaming and folder_link_or_id:
         # Build the service
         service = build('drive', 'v3', credentials=creds)
 
-        # Request files in the folder
-        results = service.files().list(q=f"'{folder_id_rename}' in parents").execute()
-        items = results.get('files', [])
+        try:
+            # Request files in the folder
+            results = service.files().list(q=f"'{folder_id_rename}' in parents").execute()
+            items = results.get('files', [])
 
-        if not items:
-            st.error("No files found.")
-        else:
-            total_files = len(items)
-            progress_report = st.empty()  # Create a placeholder for the progress report
+            if not items:
+                st.error("No files found.")
+            else:
+                total_files = len(items)
+                progress_report = st.empty()  # Create a placeholder for the progress report
 
-            # Define a function to perform the renaming, for use with the ThreadPoolExecutor
-            def rename_file(file):
-                try:
-                    # Extract file extension
-                    file_ext = os.path.splitext(file['name'])[1]
+                # Define a function to perform the renaming
+                def rename_file(file):
+                    try:
+                        # Extract file extension
+                        file_ext = os.path.splitext(file['name'])[1]
 
-                    if '_2023_' in file['name']:
-                        # Remove all characters past '_2023_' in the file name
-                        new_file_name = re.sub(r'_2023_.*', '', file['name'])
+                        if '_2023_' in file['name']:
+                            # Remove all characters past '_2023_' in the file name
+                            new_file_name = re.sub(r'_2023_.*', '', file['name'])
 
-                        # Append the custom file name ending and the file extension
-                        new_file_name += f'_2023_{file_name_ending}{file_ext}'
+                            # Append the custom file name ending and the file extension
+                            new_file_name += f'_2023_{file_name_ending}{file_ext}'
 
-                        # Rename the file
-                        service.files().update(fileId=file['id'], body={"name": new_file_name}).execute()
+                            # Rename the file
+                            service.files().update(fileId=file['id'], body={"name": new_file_name}).execute()
 
-                except Exception as e:
-                    st.write(f"Error renaming {file['name']}: {e}")
+                    except Exception as e:
+                        st.write(f"Error renaming {file['name']}: {e}")
 
-            # Use a ThreadPoolExecutor to perform the renames in parallel
-            with ProcessPoolExecutor(max_workers=5) as executor:
-                futures = {executor.submit(rename_file, file): file for file in items}
-                for i, future in enumerate(as_completed(futures), start=1):
-                    progress_report.text(f"Renaming progress: ({i}/{total_files})")  # Update the text in the placeholder
+                # Use a ThreadPoolExecutor to perform the renames in parallel
+                with ProcessPoolExecutor(max_workers=5) as executor:
+                    futures = {executor.submit(rename_file, file): file for file in items}
+                    for i, future in enumerate(as_completed(futures), start=1):
+                        progress_report.text(f"Renaming progress: ({i}/{total_files})")  # Update the text in the placeholder
 
-            st.success("All files renamed successfully!")
+                st.success("All files renamed successfully!")
+        except Exception as e:
+            st.error(f"Error processing the folder: {e}")
