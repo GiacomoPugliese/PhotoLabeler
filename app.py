@@ -673,17 +673,9 @@ if st.button('Process Training Data'):
             query = f"'{training_data_directory_id}' in parents and trashed = false and mimeType = 'application/vnd.google-apps.folder' and name = 'Training Images'"
             Training_Images = service.files().list(q=query).execute().get('files', [])
 
-            if not Training_Images:
-                print("Training Images folder not found")
-                query = f"'{training_data_directory_id}' in parents and trashed = false and mimeType = 'application/vnd.google-apps.folder'"
-                intern_folders = service.files().list(q=query).execute().get('files', [])
-            else:
-                training_images_folder_id = Training_Images[0]['id']  # Assume only one folder named 'Training Images'
-
-                # Step 2: Get the sub-folders excluding 'Training Images' directory
-                query = f"'{training_data_directory_id}' in parents and trashed = false and mimeType = 'application/vnd.google-apps.folder' and '{training_images_folder_id}' not in parents"
-                intern_folders = service.files().list(q=query).execute().get('files', [])
-
+                
+            query = f"'{training_data_directory_id}' in parents and trashed = false and mimeType = 'application/vnd.google-apps.folder'"
+            intern_folders = service.files().list(q=query).execute().get('files', [])
 
             progress_report = st.empty()
             progress_report.text(f"Initializing training data...")
