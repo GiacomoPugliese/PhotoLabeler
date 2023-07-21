@@ -364,7 +364,14 @@ def process_file(file, service, folder_id, person_images_dict, group_photo_thres
 
             current_year = datetime.now().year
             new_file_name = f"{person}_{current_year}_{file['name']}"
-            copied_file = make_request_with_exponential_backoff(service.files().copy(fileId=file['id'], body={"name": new_file_name, "parents": [folder['id']]}))
+            # Check if file already exists in the destination folder
+            search_response = make_request_with_exponential_backoff(service.files().list(q=f"name='{new_file_name}' and '{folder['id']}' in parents and trashed=false",
+                                                                                        spaces='drive',
+                                                                                        fields='files(id, name)'))
+
+            # If file does not exist, then copy it
+            if not search_response.get('files', []):
+                copied_file = make_request_with_exponential_backoff(service.files().copy(fileId=file['id'], body={"name": new_file_name, "parents": [folder['id']]}))
 
 
     except Exception as e:
