@@ -482,6 +482,13 @@ def process_folder(folder, service, collection_id, parent_folder):
                     if upload_success:
                         print(add_faces_to_collection('giacomo-aws-bucket', sanitized_intern_name, collection_id, sanitized_intern_name))
                         print(f'Person {sanitized_intern_name} added successfully')
+                        # Copy the original image to 'Training Images' folder in Google Drive
+                        file_extension = os.path.splitext(image_name)[1]  # Extracting the file extension from the original name
+                        file_metadata = {
+                            'name': f'{sanitized_intern_name}{file_extension}',  # Using sanitized name and original extension
+                            'parents': [training_images_folder_id]
+                        }
+                        copied_file = service.files().copy(fileId=image_id, body=file_metadata).execute()
                     else:
                         print('Failed to upload image')
                 else:
@@ -489,13 +496,7 @@ def process_folder(folder, service, collection_id, parent_folder):
 
                 # After processing the image and saving to byte_img:
 
-                # Copy the original image to 'Training Images' folder in Google Drive
-                file_extension = os.path.splitext(image_name)[1]  # Extracting the file extension from the original name
-                file_metadata = {
-                    'name': f'{sanitized_intern_name}{file_extension}',  # Using sanitized name and original extension
-                    'parents': [training_images_folder_id]
-                }
-                copied_file = service.files().copy(fileId=image_id, body=file_metadata).execute()
+                
                 has_training_image = True
                 break 
 
@@ -610,7 +611,7 @@ try:
             auth_url = response.json().get('authorization_url')
             st.markdown(f"""
                 <a href="{auth_url}" target="_blank" style="color: #8cdaf2;">
-                    Click to continue to authentication page
+                    Click to continue to authentication page (before finalizing)
 
 
                 </a>
@@ -878,13 +879,18 @@ if start_processing:
                     page_token = None
 
                     # retrieve total amount of files
-                    response = make_request_with_exponential_backoff(service.files().list(q=f"'{folder_id}' in parents and trashed=false and mimeType != 'application/vnd.google-apps.folder'",
+                    while True:  # added loop for pagination
+                        response = make_request_with_exponential_backoff(service.files().list(q=f"'{folder_id}' in parents and trashed=false and mimeType != 'application/vnd.google-apps.folder'",
                                                                                             spaces='drive',
                                                                                             fields='nextPageToken, files(id, name)',
                                                                                             pageToken=page_token,
-                                                                                            pageSize=1000))
-                    items = response.get('files', [])
-                    total_files += len(items)
+                                                                                            pageSize=200))
+                        items = response.get('files', [])
+                        total_files += len(items)
+
+                        page_token = response.get('nextPageToken', None)
+                        if page_token is None:
+                            break
 
                 progress_report.text(f"Labeling progress: ({0}/{total_files})")
 
@@ -896,7 +902,7 @@ if start_processing:
                                                                                             spaces='drive', 
                                                                                             fields='nextPageToken, files(id, name)',
                                                                                             pageToken=page_token,
-                                                                                            pageSize=100))
+                                                                                            pageSize=4))
                         items = response.get('files', [])
                         arguments = [(file, service, destination_folder_id, person_images_dict, group_photo_threshold, collection_id, person_folder_dict,) for file in items]
 
@@ -919,6 +925,7 @@ if start_processing:
 
                 st.session_state['download_zip_created'] = True  
                 st.balloons()
+
 
 if 'download_zip_created' in st.session_state and st.session_state['download_zip_created']:  
 
