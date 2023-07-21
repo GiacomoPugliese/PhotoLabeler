@@ -846,8 +846,9 @@ if start_processing:
             except:
                 st.error("Please refresh the page and retry Google authentication.")
 
-            progress_report_folder = st.empty()
+            
             with st.spinner("Creating folders"):
+                progress_report_folder = st.empty()
                 person_folder_dict = {}
                 arguments = [(service, destination_folder_id, person) for person in person_names + ['Group Photos']]
                 completed_folders = 0
@@ -863,14 +864,14 @@ if start_processing:
                         except:
                             pass
 
-
-            progress_report = st.empty()
-
             with st.spinner("Labeling images.."):
+                progress_report = st.empty()
                 if not os.path.exists(f'{collection_id}/labels'):
                     os.makedirs(f'{collection_id}/labels')
                 total_files = 0
                 labeled_files = 0
+                person_images_dict = {}
+                group_photo_threshold = 13
                 for folder_id in folder_ids:
                     page_token = None
 
