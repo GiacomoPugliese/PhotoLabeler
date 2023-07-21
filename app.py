@@ -547,7 +547,7 @@ with st.expander("Click to view full directions for this site"):
     st.write("- Either create or insert an existing program id to log into intern database (** a program ID is needed for all parts of the site **)")
     st.write("- Authenticate with Google before performing any actions (** Google authentication is needed for all parts of this site **)")
     st.subheader("Configure Training Data")
-    st.write("- For the training data upload via google drive, upload a folder with all of the intern's folders, and ensure each folder has a least one solo image of them with the word 'bio' in its title (i.e. Giacomo Pugliese  - Bio - Middle School Jumpstart Program - July 9th .jpg).")
+    st.write("- For the training data upload via google drive, upload a folder with all of the intern's folders, and ensure each folder has a least one solo image of them with the word 'bio' after student name (i.e. Giacomo Pugliese  - Bio - Middle School Jumpstart Program - July 9th .jpg).")
     st.write("- Alternatively, create student profiles and upload solo images of them to train the AI (** names must be in format FIRST_LAST **)")
     st.write("- Delete student profile to clear their training data if needed")
     st.subheader("Interns in System")
@@ -555,7 +555,8 @@ with st.expander("Click to view full directions for this site"):
     st.subheader("Detect Interns in Photos")
     st.write("- Insert a comma seperated list of the folder links of your google drive containing intern photos")
     st.write("- Add a destination drive folder if you want the labeled intern folders to go somewhere different than the folder containing the input photos.")
-    st.write("- Click 'Start Processing' and allow the AI to sort the images into individual student folders directly into the drive (may take a while, ensure that computer is on the whole time)")
+    st.write("- Click 'Start Processing' and allow the AI to sort the images into individual student folders directly into the drive.")
+    st.write("- When sorting, please don't leave tab. Note that a bad internet connection might retrigger the labeling process from the start (won't duplicate imgages in sorted folders however)")
     st.subheader("Renaming tool")
     st.write("- Insert the folder link of your google drive folder containing program's students at a particular location")
     st.write("- Choose the custom file ending for that location (i.e. ending would be '_Jumpstart_Group_1' for a file you want named 'Giacomo_Pugliese_2023_Jumpstart_Group_1')")
@@ -761,7 +762,7 @@ with col1:
                     # Check if person already exists
                     if person_name not in list_faces_in_collection(collection_id):
                         add_faces_to_collection('giacomo-aws-bucket', person_name, collection_id, person_name)
-                        st.write('Person added successfully')
+                        st.write('Intern added successfully')
                     else:
                         # If person already exists, just add the image to the person's existing images in the collection
                         st.write('Image added to existing person')
@@ -784,11 +785,11 @@ with col2:
                                 if face['ExternalImageId'] == person_name), None)
                 if face_id:
                     delete_face_from_collection(collection_id, face_id)
-                    st.write(f'Person {person_name} deleted successfully')
+                    st.write(f'Intern {person_name} deleted successfully')
                 else:
-                    st.write(f'Person {person_name} not found')
+                    st.write(f'Intern {person_name} not found')
             else:
-                st.write('Please enter a name and program id to delete')
+                st.write('Please enter an intern name and program id to delete')
 
 
 # Display the list of person names
@@ -961,15 +962,24 @@ file_name_ending = st.text_input('Enter your custom file name ending')
 start_renaming = st.button('Start Renaming')
 
 if start_renaming and folder_id_rename:
-    if(not folder_id_rename):
+    if not folder_id_rename:
         st.error("Please upload your google drive folder")
-    elif(collection_id == 'your-default-collection-id'):
-        st.error("Please enter a program id!")
     elif not st.session_state['final_auth']:
         st.error("Please authenticate with google!")
     else:
+        # Load client info from the oauth credentials file
+        with open('credentials.json', 'r') as f:
+            client_info = json.load(f)['web']
+        
+        creds_dict = st.session_state.get('creds')
+        creds_dict['client_id'] = client_info['client_id']
+        creds_dict['client_secret'] = client_info['client_secret']
+        creds_dict['refresh_token'] = creds_dict.get('_refresh_token')
+
+        # Create Credentials from creds_dict
+        creds = Credentials.from_authorized_user_info(creds_dict)
+
         # Build the service
-        creds = service_account.Credentials.from_service_account_file('credentials.json')
         service = build('drive', 'v3', credentials=creds)
 
         # Request files in the folder
@@ -1002,7 +1012,7 @@ if start_renaming and folder_id_rename:
                     st.write(f"Error renaming {file['name']}: {e}")
 
             # Use a ThreadPoolExecutor to perform the renames in parallel
-            with ThreadPoolExecutor(max_workers=5) as executor:
+            with ProcessPoolExecutor(max_workers=5) as executor:
                 futures = {executor.submit(rename_file, file): file for file in items}
                 for i, future in enumerate(as_completed(futures), start=1):
                     progress_report.text(f"Renaming progress: ({i}/{total_files})")  # Update the text in the placeholder
