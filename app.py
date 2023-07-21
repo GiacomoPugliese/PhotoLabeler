@@ -369,6 +369,7 @@ def process_file(file, service, folder_id, person_images_dict, group_photo_thres
 
     except Exception as e:
         print(f"{file['name']} threw an error: {e}")
+        traceback.print_exc()  # This line prints the full traceback
 
     # Generate a unique filename using uuid library
     unique_filename = str(uuid.uuid4()) + '.txt'
