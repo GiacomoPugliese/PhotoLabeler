@@ -504,8 +504,9 @@ def process_folder(folder, service, interns_without_training_data, collection_id
             traceback.print_exc()  # This line prints the full traceback
 
     if not has_training_image:
-        interns_without_training_data.append(folder['name'])
         print(folder['name'] + 'has no training data!')
+        return folder['name']  # return the intern's name in case of error
+    return None  # return None if there was no error
 
 
 
@@ -668,9 +669,21 @@ if st.button('Process Training Data'):
             # Extracting the folder ID from the link
             training_data_directory_id = training_data_directory_link.split('/')[-1]
 
-            # Get all the sub-folders (interns' folders)
-            query = f"'{training_data_directory_id}' in parents and trashed = false and mimeType = 'application/vnd.google-apps.folder'"
-            intern_folders = service.files().list(q=query).execute().get('files', [])
+            # Step 1: Get the 'Training Images' directory ID
+            query = f"'{training_data_directory_id}' in parents and trashed = false and mimeType = 'application/vnd.google-apps.folder' and name = 'Training Images'"
+            Training_Images = service.files().list(q=query).execute().get('files', [])
+
+            if not Training_Images:
+                print("Training Images folder not found")
+                query = f"'{training_data_directory_id}' in parents and trashed = false and mimeType = 'application/vnd.google-apps.folder'"
+                intern_folders = service.files().list(q=query).execute().get('files', [])
+            else:
+                training_images_folder_id = Training_Images[0]['id']  # Assume only one folder named 'Training Images'
+
+                # Step 2: Get the sub-folders excluding 'Training Images' directory
+                query = f"'{training_data_directory_id}' in parents and trashed = false and mimeType = 'application/vnd.google-apps.folder' and '{training_images_folder_id}' not in parents"
+                intern_folders = service.files().list(q=query).execute().get('files', [])
+
 
             progress_report = st.empty()
             progress_report.text(f"Initializing training data...")
@@ -692,12 +705,15 @@ if st.button('Process Training Data'):
             with ProcessPoolExecutor(max_workers=15) as executor:
                 futures = []
                 for folder in intern_folders:
-                    future = executor.submit(process_folder, folder, service, interns_without_training_data, collection_id, training_data_directory_id, )
+                    future = executor.submit(process_folder, folder, service, collection_id, training_data_directory_id)
                     futures.append(future)
-                
+
+                interns_without_training_data = []
                 for future in as_completed(futures):
                     # If process_folder returns a result, handle it here
-                    result = future.result()  # replace with appropriate handling if process_folder returns something
+                    result = future.result()  # result is either None or the intern's name
+                    if result is not None:  # if the result is not None, an error has occurred
+                        interns_without_training_data.append(result)
                     progress_report.text(f"Training progress: ({i}/{len(intern_folders)})")
                     i = i +1
 
@@ -705,15 +721,6 @@ if st.button('Process Training Data'):
         if interns_without_training_data:
             st.error(f"The following interns have no properly formatted training data: {', '.join(interns_without_training_data)}")
         st.balloons()
-
-if os.path.exists("converted3.jpg"):
-    with open("converted3.jpg", "rb") as file:
-            btn = st.download_button(
-                label="Download converted3.jpg",
-                data=file,
-                file_name="converted3.jpg",
-                mime="image/jpeg",
-            )
 
 st.subheader("Add training data manually")
 person_name = st.text_input("Enter the intern's name")
