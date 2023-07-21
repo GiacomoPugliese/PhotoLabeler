@@ -580,6 +580,7 @@ with col2:
                 st.error("Program ID doesn't exist")
             else:
                 delete_collection(deleted_program)
+                collection_id = 'your-default-collection-id'
                 deleted_collection = 1
 
 if(display_programs == 1):
@@ -802,129 +803,132 @@ destination_folder_link = st.text_input('Enter Google Drive Destination Folder l
 start_processing = st.button('Start Processing')
 
 if start_processing:
-    if not folder_links:
-        st.error("Please upload your google drive folders")
-    elif collection_id == 'your-default-collection-id':
-        st.error("Please enter a program id!")
-    elif not st.session_state['final_auth']:
-        st.error("Please authenticate with google!")
-    else:
-        folders = [x.strip() for x in folder_links.split(',')]
-        match_dest = re.search(r'\/([a-zA-Z0-9-_]+)$', destination_folder_link) if destination_folder_link else None
-        folder_ids = []
-        error = False
-        for folder_link in folders:
-            match = re.search(r'\/([a-zA-Z0-9-_]+)$', folder_link)
-            if(match is None):
-                st.error(f'Invalid Google Drive link: {folder_link}. Please make sure the link is correct.')
-                error = True
-                break
-            else:
-                folder_id = match.group(1)
-                folder_ids.append(folder_id)
-        if not error:
-            # If destination_folder_link is provided and valid, replace folder_id with destination_folder_id
-            destination_folder_id = match_dest.group(1) if match_dest else folder_ids[0]
+    try:
+        if not folder_links:
+            st.error("Please upload your google drive folders")
+        elif collection_id == 'your-default-collection-id':
+            st.error("Please enter a program id!")
+        elif not st.session_state['final_auth']:
+            st.error("Please authenticate with google!")
+        else:
+            folders = [x.strip() for x in folder_links.split(',')]
+            match_dest = re.search(r'\/([a-zA-Z0-9-_]+)$', destination_folder_link) if destination_folder_link else None
+            folder_ids = []
+            error = False
+            for folder_link in folders:
+                match = re.search(r'\/([a-zA-Z0-9-_]+)$', folder_link)
+                if(match is None):
+                    st.error(f'Invalid Google Drive link: {folder_link}. Please make sure the link is correct.')
+                    error = True
+                    break
+                else:
+                    folder_id = match.group(1)
+                    folder_ids.append(folder_id)
+            if not error:
+                # If destination_folder_link is provided and valid, replace folder_id with destination_folder_id
+                destination_folder_id = match_dest.group(1) if match_dest else folder_ids[0]
 
-            CLIENT_SECRET_FILE = 'credentials.json'
-            API_NAME = 'drive'
-            API_VERSION = 'v3'
-            SCOPES = ['https://www.googleapis.com/auth/drive']
+                CLIENT_SECRET_FILE = 'credentials.json'
+                API_NAME = 'drive'
+                API_VERSION = 'v3'
+                SCOPES = ['https://www.googleapis.com/auth/drive']
 
-            with open(CLIENT_SECRET_FILE, 'r') as f:
-                client_info = json.load(f)['web']
+                with open(CLIENT_SECRET_FILE, 'r') as f:
+                    client_info = json.load(f)['web']
 
-            creds_dict = st.session_state['creds']
-            creds_dict['client_id'] = client_info['client_id']
-            creds_dict['client_secret'] = client_info['client_secret']
-            creds_dict['refresh_token'] = creds_dict.get('_refresh_token')
-            try:
-                # Create Credentials from creds_dict
-                creds = Credentials.from_authorized_user_info(creds_dict)
+                creds_dict = st.session_state['creds']
+                creds_dict['client_id'] = client_info['client_id']
+                creds_dict['client_secret'] = client_info['client_secret']
+                creds_dict['refresh_token'] = creds_dict.get('_refresh_token')
+                try:
+                    # Create Credentials from creds_dict
+                    creds = Credentials.from_authorized_user_info(creds_dict)
 
-                # Call the Drive v3 API
-                service = build(API_NAME, API_VERSION, credentials=creds)
-            except:
-                st.error("Please refresh the page and retry Google authentication.")
+                    # Call the Drive v3 API
+                    service = build(API_NAME, API_VERSION, credentials=creds)
+                except:
+                    st.error("Please refresh the page and retry Google authentication.")
 
-            
-            with st.spinner("Creating folders"):
-                progress_report_folder = st.empty()
-                person_folder_dict = {}
-                arguments = [(service, destination_folder_id, person) for person in person_names + ['Group Photos']]
-                completed_folders = 0
                 
-                with ProcessPoolExecutor(max_workers=15) as executor:
-                    futures = {executor.submit(create_folder_wrapper, arg): arg for arg in arguments}
-                    for future in as_completed(futures):
-                        try:
-                            person, folder = future.result()
-                            person_folder_dict[person] = folder
-                            completed_folders += 1
-                            progress_report_folder.text(f"Folder creation progress: ({completed_folders}/{len(arguments)})")
-                        except:
-                            pass
+                with st.spinner("Creating folders"):
+                    progress_report_folder = st.empty()
+                    person_folder_dict = {}
+                    arguments = [(service, destination_folder_id, person) for person in person_names + ['Group Photos']]
+                    completed_folders = 0
+                    
+                    with ProcessPoolExecutor(max_workers=15) as executor:
+                        futures = {executor.submit(create_folder_wrapper, arg): arg for arg in arguments}
+                        for future in as_completed(futures):
+                            try:
+                                person, folder = future.result()
+                                person_folder_dict[person] = folder
+                                completed_folders += 1
+                                progress_report_folder.text(f"Folder creation progress: ({completed_folders}/{len(arguments)})")
+                            except:
+                                pass
 
-            with st.spinner("Labeling images.."):
-                progress_report = st.empty()
-                if not os.path.exists(f'{collection_id}/labels'):
-                    os.makedirs(f'{collection_id}/labels')
-                total_files = 0
-                labeled_files = 0
-                person_images_dict = {
-                    'Group Photos': []
-                }
-                group_photo_threshold = 13
-                for folder_id in folder_ids:
-                    page_token = None
+                with st.spinner("Labeling images.."):
+                    progress_report = st.empty()
+                    if not os.path.exists(f'{collection_id}/labels'):
+                        os.makedirs(f'{collection_id}/labels')
+                    total_files = 0
+                    labeled_files = 0
+                    person_images_dict = {
+                        'Group Photos': []
+                    }
+                    group_photo_threshold = 13
+                    for folder_id in folder_ids:
+                        page_token = None
 
-                    # retrieve total amount of files
-                    while True:  # added loop for pagination
-                        response = make_request_with_exponential_backoff(service.files().list(q=f"'{folder_id}' in parents and trashed=false and mimeType != 'application/vnd.google-apps.folder'",
-                                                                                            spaces='drive',
-                                                                                            fields='nextPageToken, files(id, name)',
-                                                                                            pageToken=page_token,
-                                                                                            pageSize=200))
-                        items = response.get('files', [])
-                        total_files += len(items)
+                        # retrieve total amount of files
+                        while True:  # added loop for pagination
+                            response = make_request_with_exponential_backoff(service.files().list(q=f"'{folder_id}' in parents and trashed=false and mimeType != 'application/vnd.google-apps.folder'",
+                                                                                                spaces='drive',
+                                                                                                fields='nextPageToken, files(id, name)',
+                                                                                                pageToken=page_token,
+                                                                                                pageSize=200))
+                            items = response.get('files', [])
+                            total_files += len(items)
 
-                        page_token = response.get('nextPageToken', None)
-                        if page_token is None:
-                            break
+                            page_token = response.get('nextPageToken', None)
+                            if page_token is None:
+                                break
 
-                progress_report.text(f"Labeling progress: ({0}/{total_files})")
+                    progress_report.text(f"Labeling progress: ({0}/{total_files})")
 
-                for folder_id in folder_ids:
-                    page_token = None
+                    for folder_id in folder_ids:
+                        page_token = None
 
-                    while True:
-                        response = make_request_with_exponential_backoff(service.files().list(q=f"'{folder_id}' in parents and trashed=false and mimeType != 'application/vnd.google-apps.folder'",
-                                                                                            spaces='drive', 
-                                                                                            fields='nextPageToken, files(id, name)',
-                                                                                            pageToken=page_token,
-                                                                                            pageSize=4))
-                        items = response.get('files', [])
-                        arguments = [(file, service, destination_folder_id, person_images_dict, group_photo_threshold, collection_id, person_folder_dict,) for file in items]
+                        while True:
+                            response = make_request_with_exponential_backoff(service.files().list(q=f"'{folder_id}' in parents and trashed=false and mimeType != 'application/vnd.google-apps.folder'",
+                                                                                                spaces='drive', 
+                                                                                                fields='nextPageToken, files(id, name)',
+                                                                                                pageToken=page_token,
+                                                                                                pageSize=1000))
+                            items = response.get('files', [])
+                            arguments = [(file, service, destination_folder_id, person_images_dict, group_photo_threshold, collection_id, person_folder_dict,) for file in items]
 
-                        with ProcessPoolExecutor(max_workers=15) as executor:
-                            futures = {executor.submit(process_file_wrapper, arg): arg for arg in arguments}
-                            for future in as_completed(futures):
-                                try:
-                                    # Handling the future completion
-                                    result = future.result()  # replace with appropriate handling if process_file_wrapper returns something
-                                except:
-                                    pass
-                                labeled_files += 1
-                                progress_report.text(f"Labeling progress: ({labeled_files}/{total_files})")
+                            with ProcessPoolExecutor(max_workers=15) as executor:
+                                futures = {executor.submit(process_file_wrapper, arg): arg for arg in arguments}
+                                for future in as_completed(futures):
+                                    try:
+                                        # Handling the future completion
+                                        result = future.result()  # replace with appropriate handling if process_file_wrapper returns something
+                                    except:
+                                        pass
+                                    labeled_files += 1
+                                    progress_report.text(f"Labeling progress: ({labeled_files}/{total_files})")
 
-                        page_token = response.get('nextPageToken', None)
-                        if page_token is None:
-                            break
+                            page_token = response.get('nextPageToken', None)
+                            if page_token is None:
+                                break
 
-                consolidate_labels(collection_id)
+                    consolidate_labels(collection_id)
 
-                st.session_state['download_zip_created'] = True  
-                st.balloons()
+                    st.session_state['download_zip_created'] = True  
+                    st.balloons()
+    except:
+        st.error('Experiencing network issues, please refresh page and try again.')
 
 
 if 'download_zip_created' in st.session_state and st.session_state['download_zip_created']:  
