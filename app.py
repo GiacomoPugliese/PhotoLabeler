@@ -318,7 +318,7 @@ def list_collections(max_results=20):
     return collection_ids
 
 def process_file(file, service, folder_id, person_images_dict, group_photo_threshold, collection_id, person_folder_dict):
-    st.write(f"{file['name']} started")
+    print(f"{file['name']} started")
     try:
         # Initialize persons
         persons = []
@@ -337,7 +337,6 @@ def process_file(file, service, folder_id, person_images_dict, group_photo_thres
             img.save(byte_arr, format='JPEG')
             img.save('converted3.jpg')
             byte_img = byte_arr.getvalue()
-            return byte_img
         else:  # This will cover both .jpg and .png files
             img_io = io.BytesIO(fh.getvalue())
             img = resize_image(img_io, 1000)
