@@ -1024,17 +1024,18 @@ if start_renaming and folder_link_or_id:
                 progress_report = st.empty()  # Create a placeholder for the progress report
 
                 # Define a function to perform the renaming
-                def rename_file(file):
+                def rename_file(file, curr_year):
                     try:
                         # Extract file extension
                         file_ext = os.path.splitext(file['name'])[1]
+                        year_str = f'_{curr_year}_'
 
-                        if '_2023_' in file['name']:
-                            # Remove all characters past '_2023_' in the file name
-                            new_file_name = re.sub(r'_2023_.*', '', file['name'])
+                        if year_str in file['name']:
+                            # Remove all characters past '_{curr_year}_' in the file name
+                            new_file_name = re.sub(rf'{year_str}.*', '', file['name'])
 
                             # Append the custom file name ending and the file extension
-                            new_file_name += f'_2023_{file_name_ending}{file_ext}'
+                            new_file_name += f'{year_str}{file_name_ending}{file_ext}'
 
                             # Rename the file
                             service.files().update(fileId=file['id'], body={"name": new_file_name}).execute()
@@ -1042,11 +1043,14 @@ if start_renaming and folder_link_or_id:
                     except Exception as e:
                         st.write(f"Error renaming {file['name']}: {e}")
 
+
                 # Use a ThreadPoolExecutor to perform the renames in parallel
-                with ProcessPoolExecutor(max_workers=5) as executor:
-                    futures = {executor.submit(rename_file, file): file for file in items}
+                with ProcessPoolExecutor(max_workers=10) as executor:
+                    curr_year =  datetime.now().year  # replace with the current year or however you are getting the current year
+                    futures = {executor.submit(rename_file, file, curr_year): file for file in items}
                     for i, future in enumerate(as_completed(futures), start=1):
                         progress_report.text(f"Renaming progress: ({i}/{total_files})")  # Update the text in the placeholder
+
 
                 st.success("All files renamed successfully!")
         except Exception as e:
