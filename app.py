@@ -39,6 +39,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 from googleapiclient.http import MediaFileUpload
 import traceback
 import pyheif
+from urllib.parse import urlparse, parse_qs
 
 logging.basicConfig(level=logging.INFO)
 
@@ -751,6 +752,8 @@ with col1:
     if st.button('Add this image'):
         if(collection_id == 'your-default-collection-id'):
             st.error("Please enter a program id!")
+        elif not re.match(r"^[A-Za-z]+_[A-Za-z]+$", person_name):  
+            st.error("Please enter the person's name in the format Firstname_Lastname")
         else:
             if person_name and person_image and collection_id:
                 # Save the image locally
@@ -956,21 +959,44 @@ if 'download_zip_created' in st.session_state and st.session_state['download_zip
  
 ##############################################################################################
 
+def extract_drive_id(drive_link):
+    """
+    Extract the Google Drive ID from a URL
+
+    Args:
+    drive_link : str : Google Drive URL
+
+    Returns:
+    str : Google Drive ID extracted from the URL
+    """
+    url_parsed = urlparse(drive_link)
+
+    if url_parsed.netloc == "drive.google.com":
+        if url_parsed.path.startswith('/drive/folders/'):
+            return url_parsed.path.split('/')[3]
+        if url_parsed.path.startswith('/open'):
+            return parse_qs(url_parsed.query)['id'][0]
+
+    return None
+
+
 st.header('Naming Tool')
-folder_id_rename = st.text_input('Enter Google Drive Folder ID for Renaming')
+folder_link_or_id = st.text_input('Enter Google Drive Folder Link or ID for Renaming')
 file_name_ending = st.text_input('Enter your custom file name ending')
 start_renaming = st.button('Start Renaming')
 
-if start_renaming and folder_id_rename:
+if start_renaming and folder_link_or_id:
+    folder_id_rename = extract_drive_id(folder_link_or_id) if 'drive.google.com' in folder_link_or_id else folder_link_or_id
+
     if not folder_id_rename:
-        st.error("Please upload your google drive folder")
+        st.error("Please enter your Google Drive folder link or ID")
     elif not st.session_state['final_auth']:
-        st.error("Please authenticate with google!")
+        st.error("Please authenticate with Google!")
     else:
-        # Load client info from the oauth credentials file
+        # Load client info from the OAuth credentials file
         with open('credentials.json', 'r') as f:
             client_info = json.load(f)['web']
-        
+
         creds_dict = st.session_state.get('creds')
         creds_dict['client_id'] = client_info['client_id']
         creds_dict['client_secret'] = client_info['client_secret']
@@ -1018,4 +1044,3 @@ if start_renaming and folder_id_rename:
                     progress_report.text(f"Renaming progress: ({i}/{total_files})")  # Update the text in the placeholder
 
             st.success("All files renamed successfully!")
-
