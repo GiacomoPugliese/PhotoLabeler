@@ -461,6 +461,7 @@ def process_folder(folder, service, collection_id, parent_folder):
                     with open(unique_heic_filename, 'wb') as f:  # Open a file in binary mode for writing
                         f.write(fh.getvalue())  # Write the content
 
+                    
                     # Then convert the saved HEIC file to JPEG
                     byte_img = convert_heic_to_jpeg(unique_heic_filename)
 
@@ -932,14 +933,16 @@ if start_processing:
 
 
 if 'download_zip_created' in st.session_state and st.session_state['download_zip_created']:  
-
-    with open(f'{collection_id}/labels.txt', 'r') as f:
-        st.download_button(
-            label="Download all textual labels",
-            data=f.read(),
-            file_name='labels.txt',
-            mime='text/plain'
-        )
+    try:
+        with open(f'{collection_id}/labels.txt', 'r') as f:
+            st.download_button(
+                label="Download all textual labels",
+                data=f.read(),
+                file_name='labels.txt',
+                mime='text/plain'
+            )
+    except:
+        pass
 
 
  
@@ -970,13 +973,11 @@ if start_renaming and folder_id_rename:
             st.error("No files found.")
         else:
             total_files = len(items)
-
             progress_report = st.empty()  # Create a placeholder for the progress report
 
-            for i, file in enumerate(items, start=1):
+            # Define a function to perform the renaming, for use with the ThreadPoolExecutor
+            def rename_file(file):
                 try:
-                    progress_report.text(f"Renaming progress: ({i}/{total_files})")  # Update the text in the placeholder
-
                     # Extract file extension
                     file_ext = os.path.splitext(file['name'])[1]
 
@@ -992,7 +993,12 @@ if start_renaming and folder_id_rename:
 
                 except Exception as e:
                     st.write(f"Error renaming {file['name']}: {e}")
-                    continue
+
+            # Use a ThreadPoolExecutor to perform the renames in parallel
+            with ThreadPoolExecutor(max_workers=5) as executor:
+                futures = {executor.submit(rename_file, file): file for file in items}
+                for i, future in enumerate(as_completed(futures), start=1):
+                    progress_report.text(f"Renaming progress: ({i}/{total_files})")  # Update the text in the placeholder
 
             st.success("All files renamed successfully!")
 
