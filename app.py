@@ -978,12 +978,6 @@ def extract_drive_id(drive_link):
 
     return None
 
-
-st.header('Naming Tool')
-folder_link_or_id = st.text_input('Enter Google Drive Folder ID or link for Renaming')
-file_name_ending = st.text_input('Enter your custom file name ending')
-start_renaming = st.button('Start Renaming')
-
 # Initial Streamlit layout
 st.header('Naming Tool')
 folder_link_or_id = st.text_input('Enter Google Drive Folder Link or ID for Renaming')
