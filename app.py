@@ -369,6 +369,7 @@ def process_file(file, service, folder_id, person_images_dict, group_photo_thres
 
     except Exception as e:
         print(f"{file['name']} threw an error: {e}")
+        traceback.print_exc()  # This line prints the full traceback
 
     # Generate a unique filename using uuid library
     unique_filename = str(uuid.uuid4()) + '.txt'
@@ -869,7 +870,9 @@ if start_processing:
                     os.makedirs(f'{collection_id}/labels')
                 total_files = 0
                 labeled_files = 0
-                person_images_dict = {}
+                person_images_dict = {
+                    'Group Photos': []
+                }
                 group_photo_threshold = 13
                 for folder_id in folder_ids:
                     page_token = None
