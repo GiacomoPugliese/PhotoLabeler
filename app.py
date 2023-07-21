@@ -810,7 +810,7 @@ def process_file_wrapper(args):
 st.header('Detect Interns in Photos')
 folder_links = st.text_area('Enter Google Drive Folder links (comma separated)')
 destination_folder_link = st.text_input('Enter Google Drive Destination Folder link (Optional)')
-st.caption("Warning: A weak wifi connection can lead to the labeling process being randomly retriggered, but the photos will never be duplicated in the drive. To prevent this, ensure a stable internet connection while running.")
+st.caption("Warning: A weak wifi connection can lead to the labeling process being randomly retriggered, but the photos will never be duplicated to the drive. To prevent this, ensure a stable internet connection while running.")
 start_processing = st.button('Start Labeling')
 
 if start_processing:
