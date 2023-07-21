@@ -506,9 +506,10 @@ def process_folder(folder, service, collection_id, parent_folder):
     if not has_training_image:
         print(folder['name'] + 'has no training data!')
         intern_name = folder['name']
-        # split the intern_name on ' - ', and return the part after ' - '
-        error_name = intern_name.split(' - ', 1)[-1] if ' - ' in intern_name else intern_name
+        # split the intern_name on ' - ', and return the part before ' - '
+        error_name = intern_name.split(' - ', 1)[0] if ' - ' in intern_name else intern_name
         return error_name  # return the error_name in case of error
+
     return None  # return None if there was no error
 
 
