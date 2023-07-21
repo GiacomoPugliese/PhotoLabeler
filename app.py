@@ -748,51 +748,49 @@ person_image = st.file_uploader('Upload a solo image of the intern', type=['jpg'
 
 col1, col2, col3, col4, col5 = st.columns(5)
 
-with col1:
-    if st.button('Add this image'):
-        if(collection_id == 'your-default-collection-id'):
-            st.error("Please enter a program id!")
-        elif not re.match(r"^[A-Za-z]+_[A-Za-z]+$", person_name):  
-            st.error("Please enter the person's name in the format Firstname_Lastname")
-        else:
-            if person_name and person_image and collection_id:
-                # Save the image locally
-                file_path = save_file_locally(person_image, person_name)
-                # Upload the image to S3 bucket
-                with open(file_path, "rb") as f:
-                    upload_success = upload_file_to_s3(f, 'giacomo-aws-bucket', person_name)
-                if upload_success:
-                    # Check if person already exists
-                    if person_name not in list_faces_in_collection(collection_id):
-                        add_faces_to_collection('giacomo-aws-bucket', person_name, collection_id, person_name)
-                        st.write('Intern added successfully')
-                    else:
-                        # If person already exists, just add the image to the person's existing images in the collection
-                        st.write('Image added to existing person')
-                    # Clear the input fields
-                    person_name = None
-                    person_image = None
+if st.button('Add this image'):
+    if(collection_id == 'your-default-collection-id'):
+        st.error("Please enter a program id!")
+    elif not re.match(r"^[A-Za-z]+_[A-Za-z]+$", person_name):  
+        st.error("Please enter the person's name in the format Firstname_Lastname")
+    else:
+        if person_name and person_image and collection_id:
+            # Save the image locally
+            file_path = save_file_locally(person_image, person_name)
+            # Upload the image to S3 bucket
+            with open(file_path, "rb") as f:
+                upload_success = upload_file_to_s3(f, 'giacomo-aws-bucket', person_name)
+            if upload_success:
+                # Check if person already exists
+                if person_name not in list_faces_in_collection(collection_id):
+                    add_faces_to_collection('giacomo-aws-bucket', person_name, collection_id, person_name)
+                    st.write('Intern added successfully')
                 else:
-                    st.write('Failed to upload image')
+                    # If person already exists, just add the image to the person's existing images in the collection
+                    st.write('Image added to existing person')
+                # Clear the input fields
+                person_name = None
+                person_image = None
             else:
-                st.write('Please enter a name, upload an image, and provide a program id')
+                st.write('Failed to upload image')
+        else:
+            st.error('Please enter a name, upload an image, and provide a program id')
 
-with col2:
-    if st.button('Delete intern'):
-        if(collection_id == 'your-default-collection-id'):
-            st.error("Please enter a program id!")
-        else:
-            if person_name and collection_id:
-                # Find the faceId of the person to delete
-                face_id = next((face['FaceId'] for face in client.list_faces(CollectionId=collection_id)['Faces'] 
-                                if face['ExternalImageId'] == person_name), None)
-                if face_id:
-                    delete_face_from_collection(collection_id, face_id)
-                    st.write(f'Intern {person_name} deleted successfully')
-                else:
-                    st.write(f'Intern {person_name} not found')
+if st.button('Delete intern'):
+    if(collection_id == 'your-default-collection-id'):
+        st.error("Please enter a program id!")
+    else:
+        if person_name and collection_id:
+            # Find the faceId of the person to delete
+            face_id = next((face['FaceId'] for face in client.list_faces(CollectionId=collection_id)['Faces'] 
+                            if face['ExternalImageId'] == person_name), None)
+            if face_id:
+                delete_face_from_collection(collection_id, face_id)
+                st.write(f'Intern {person_name} deleted successfully')
             else:
-                st.write('Please enter an intern name and program id to delete')
+                st.write(f'Intern {person_name} not found')
+        else:
+            st.write('Please enter an intern name and program id to delete')
 
 
 # Display the list of person names
@@ -980,23 +978,30 @@ def extract_drive_id(drive_link):
     return None
 
 
+# Oauth creds loading
 st.header('Naming Tool')
-folder_link_or_id = st.text_input('Enter Google Drive Folder Link or ID for Renaming')
+folder_link_or_id = st.text_input('Enter Google Drive Folder ID or link for Renaming')
 file_name_ending = st.text_input('Enter your custom file name ending')
 start_renaming = st.button('Start Renaming')
 
 if start_renaming and folder_link_or_id:
-    folder_id_rename = extract_drive_id(folder_link_or_id) if 'drive.google.com' in folder_link_or_id else folder_link_or_id
-
-    if not folder_id_rename:
-        st.error("Please enter your Google Drive folder link or ID")
-    elif not st.session_state['final_auth']:
-        st.error("Please authenticate with Google!")
+    if not folder_link_or_id:
+        st.error("Please upload your google drive folder")
+    elif not st.session_state.get('final_auth'):
+        st.error("Please authenticate with google!")
     else:
-        # Load client info from the OAuth credentials file
+        # Parse folder id from link or use direct id
+        url_parts = urlparse(folder_link_or_id)
+        if url_parts.netloc == "drive.google.com":
+            query = parse_qs(url_parts.query)
+            folder_id_rename = query.get("id")[0]
+        else:
+            folder_id_rename = folder_link_or_id
+        
+        # Load client info from the oauth credentials file
         with open('credentials.json', 'r') as f:
             client_info = json.load(f)['web']
-
+        
         creds_dict = st.session_state.get('creds')
         creds_dict['client_id'] = client_info['client_id']
         creds_dict['client_secret'] = client_info['client_secret']
