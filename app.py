@@ -422,7 +422,7 @@ def process_folder(folder, service, collection_id, parent_folder):
 
     query = f"'{parent_folder}' in parents and name='Training Images' and trashed = false"
     results = service.files().list(q=query).execute().get('files', [])
-
+    
     if results:
         training_images_folder_id = results[0]['id']
     else:
@@ -505,7 +505,10 @@ def process_folder(folder, service, collection_id, parent_folder):
 
     if not has_training_image:
         print(folder['name'] + 'has no training data!')
-        return folder['name']  # return the intern's name in case of error
+        intern_name = folder['name']
+        # split the intern_name on ' - ', and return the part after ' - '
+        error_name = intern_name.split(' - ', 1)[-1] if ' - ' in intern_name else intern_name
+        return error_name  # return the error_name in case of error
     return None  # return None if there was no error
 
 
@@ -683,9 +686,11 @@ if st.button('Process Training Data'):
             # Check if 'Training Images' folder exists in the parent directory. If not, create it.
             query = f"'{training_data_directory_id}' in parents and name='Training Images' and trashed = false"
             results = service.files().list(q=query).execute().get('files', [])
+            total_interns = len(intern_folders)
 
             if results:
                 training_images_folder_id = results[0]['id']
+                total_interns = total_interns - 1
             else:
                 file_metadata = {
                     'name': 'Training Images',
@@ -703,7 +708,7 @@ if st.button('Process Training Data'):
                 interns_without_training_data = []
                 for future in as_completed(futures):
                     # If process_folder returns a result, handle it here
-                    result = future.result()  # result is either None or the intern's name
+                    result = future.result()  # result is either None or the error_name
                     if result is not None:  # if the result is not None, an error has occurred
                         interns_without_training_data.append(result)
                     progress_report.text(f"Training progress: ({i}/{len(intern_folders)})")
@@ -711,6 +716,7 @@ if st.button('Process Training Data'):
 
         # After all interns have been processed, if there were interns without training data, display a Streamlit error
         if interns_without_training_data:
+            interns_without_training_data = [intern for intern in interns_without_training_data if intern != 'Training Images']
             st.error(f"The following interns have no properly formatted training data: {', '.join(interns_without_training_data)}")
         st.balloons()
 
