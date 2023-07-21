@@ -764,15 +764,15 @@ if st.button('Add this image'):
                 # Check if person already exists
                 if person_name not in list_faces_in_collection(collection_id):
                     add_faces_to_collection('giacomo-aws-bucket', person_name, collection_id, person_name)
-                    st.write('Intern added successfully')
+                    st.success('Intern added successfully')
                 else:
                     # If person already exists, just add the image to the person's existing images in the collection
-                    st.write('Image added to existing person')
+                    st.success('Image added to existing intern')
                 # Clear the input fields
                 person_name = None
                 person_image = None
             else:
-                st.write('Failed to upload image')
+                st.error('Failed to upload image')
         else:
             st.error('Please enter a name, upload an image, and provide a program id')
 
@@ -786,11 +786,11 @@ if st.button('Delete intern'):
                             if face['ExternalImageId'] == person_name), None)
             if face_id:
                 delete_face_from_collection(collection_id, face_id)
-                st.write(f'Intern {person_name} deleted successfully')
+                st.info(f'Intern {person_name} deleted successfully')
             else:
-                st.write(f'Intern {person_name} not found')
+                st.error(f'Intern {person_name} not found')
         else:
-            st.write('Please enter an intern name and program id to delete')
+            st.error('Please enter an intern name and program id to delete')
 
 
 # Display the list of person names
