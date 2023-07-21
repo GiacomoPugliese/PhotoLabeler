@@ -412,7 +412,7 @@ def convert_heic_to_jpeg(file_name):
 
 
 
-def process_folder(folder, service, interns_without_training_data, collection_id, parent_folder):
+def process_folder(folder, service, collection_id, parent_folder):
     has_training_image = False
     temp_file_path = None
     unique_filename = None
