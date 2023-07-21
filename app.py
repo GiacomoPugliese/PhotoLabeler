@@ -482,7 +482,6 @@ def process_folder(folder, service, collection_id, parent_folder):
                     if upload_success:
                         print(add_faces_to_collection('giacomo-aws-bucket', sanitized_intern_name, collection_id, sanitized_intern_name))
                         print(f'Person {sanitized_intern_name} added successfully')
-                        has_training_image = True
                     else:
                         print('Failed to upload image')
                 else:
@@ -497,6 +496,7 @@ def process_folder(folder, service, collection_id, parent_folder):
                     'parents': [training_images_folder_id]
                 }
                 copied_file = service.files().copy(fileId=image_id, body=file_metadata).execute()
+                has_training_image = True
                 break 
 
         except Exception as e:
@@ -512,7 +512,16 @@ def process_folder(folder, service, collection_id, parent_folder):
 
     return None  # return None if there was no error
 
-
+def create_folder_wrapper(arg):
+    service, destination_folder_id, person = arg
+    folder_query = f"name='{person}' and '{destination_folder_id}' in parents and trashed=false"
+    folder_search = make_request_with_exponential_backoff(service.files().list(q=folder_query))
+    if not folder_search.get('files', []):
+        metadata = {'name': person, 'mimeType': 'application/vnd.google-apps.folder', 'parents': [destination_folder_id]}
+        folder = make_request_with_exponential_backoff(service.files().create(body=metadata, fields='id'))
+    else:
+        folder = folder_search.get('files', [])[0]
+    return person, folder
 
 if 'last_uploaded_file' not in st.session_state:
     st.session_state['last_uploaded_file'] = None
@@ -837,23 +846,23 @@ if start_processing:
             except:
                 st.error("Please refresh the page and retry Google authentication.")
 
-            # Create a dictionary to store each person's folder
+            progress_report_folder = st.empty()
             with st.spinner("Creating folders"):
                 person_folder_dict = {}
-                for person in person_names + ['Group Photos']:
-                    folder_query = f"name='{person}' and '{destination_folder_id}' in parents and trashed=false"
-                    folder_search = make_request_with_exponential_backoff(service.files().list(q=folder_query))
-                    if not folder_search.get('files', []):
-                        metadata = {'name': person, 'mimeType': 'application/vnd.google-apps.folder', 'parents': [destination_folder_id]}
-                        folder = make_request_with_exponential_backoff(service.files().create(body=metadata, fields='id'))
-                    else:
-                        folder = folder_search.get('files', [])[0]
-                    print("hi!")
-                    person_folder_dict[person] = folder
+                arguments = [(service, destination_folder_id, person) for person in person_names + ['Group Photos']]
+                completed_folders = 0
+                
+                with ProcessPoolExecutor(max_workers=15) as executor:
+                    futures = {executor.submit(create_folder_wrapper, arg): arg for arg in arguments}
+                    for future in as_completed(futures):
+                        try:
+                            person, folder = future.result()
+                            person_folder_dict[person] = folder
+                            completed_folders += 1
+                            progress_report_folder.text(f"Folder creation progress: ({completed_folders}/{len(arguments)})")
+                        except:
+                            pass
 
-                person_images_dict = {}
-                person_images_dict['Group Photos'] = []
-                group_photo_threshold = 12
 
             progress_report = st.empty()
 
