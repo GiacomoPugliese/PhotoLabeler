@@ -676,7 +676,7 @@ if start_processing:
                 
                 with st.spinner("Creating folders"):
                     progress_report_folder = st.empty()
-                    progress_report_folder.text("Initializing folder creation...")
+                    progress_report_folder.text("Processing folders...")
                     person_folder_dict = {}
                     removed_folders = [person for person in person_names if person not in st.session_state['cache']['created_folders']] 
                     arguments = [(service, destination_folder_id, person) for person in removed_folders]
@@ -722,7 +722,7 @@ if start_processing:
                             if page_token is None:
                                 break
 
-                    progress_report.text(f"Initializing labeling...")
+                    progress_report.text(f"Processing photos...")
 
                     for folder_id in folder_ids:
                         try:
