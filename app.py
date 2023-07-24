@@ -959,14 +959,15 @@ if start_processing:
                                             result = future.result()  # replace with appropriate handling if process_file_wrapper returns something
                                             st.session_state['cache']['labeled_files'].append(result)
                                             print('result: ' + result)
-                                        except:
-                                            pass
-                                        labeled_files += 1
-                                        st.session_state['cache']['file_progress'] += 1
-                                        print(st.session_state['cache']['file_progress'])
-                                        remaining_time = (total_files - max(labeled_files, st.session_state['cache']['file_progress'])) * (1/30)
-                                        flag = True
-                                        progress_report.text(f"Labeling progress: {max(labeled_files, st.session_state['cache']['file_progress'])}/{total_files} ({round(remaining_time, 1)} minutes remaining)")
+                                            labeled_files += 1
+                                            st.session_state['cache']['file_progress'] += 1
+                                            print(st.session_state['cache']['file_progress'])
+                                            remaining_time = (total_files - max(labeled_files, st.session_state['cache']['file_progress'])) * (1/30)
+                                            flag = True
+                                            progress_report.text(f"Labeling progress: {max(labeled_files, st.session_state['cache']['file_progress'])}/{total_files} ({round(remaining_time, 1)} minutes remaining)")
+                                        except Exception as e:
+                                            print (e)
+                                        
 
                                 page_token = response.get('nextPageToken', None)
                                 if page_token is None:
