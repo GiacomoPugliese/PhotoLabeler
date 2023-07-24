@@ -386,6 +386,7 @@ def process_file(file, service, folder_id, person_images_dict, group_photo_thres
         f.write(f"{file['name']}: {', '.join(set(persons))}")
 
     print(f"{file['name']}: {', '.join(set(persons))}")
+    return file['name']
 
 def convert_heic_to_jpeg(file_name):
     # Full path to the original HEIC file
@@ -540,28 +541,36 @@ if 'last_uploaded_file' not in st.session_state:
     # delete_collection('your-colleciton-id')
     st.session_state['begin_auth'] = False
     st.session_state['final_auth'] = False
+    st.session_state['cache'] = {
+                                    "links": [],
+                                    "labeled_files": [],
+                                    "file_progress": 0,
+                                    "created_folders": [],
+                                    "folder_progress": 0
+                                }
 
 st.title("Leadership Initiatives Photo Labeler")
 st.caption("By Giacomo Pugliese")
 with st.expander("Click to view full directions for this site"):
     st.subheader("User Credentials")
-    st.write("- Either create or insert an existing program id to log into intern database (** a program ID is needed for all parts of the site **)")
-    st.write("- Authenticate with Google before performing any actions (** Google authentication is needed for all parts of this site **)")
+    st.write("- Either create or insert an existing program id to log into intern database. A program ID is needed for all parts of the site.")
+    st.write("- If needed, there are options to view all programs in the system and delete uneeded accounts.")
+    st.write("- Authenticate with Google before performing any actions. Google authentication is needed for all parts of this site.")
     st.subheader("Configure Training Data")
-    st.write("- For the training data upload via google drive, upload a folder with all of the intern's folders, and ensure each folder has a least one solo image of them with the word 'bio' after student name (i.e. Giacomo Pugliese  - Bio - Middle School Jumpstart Program - July 9th .jpg).")
-    st.write("- Alternatively, create student profiles and upload solo images of them to train the AI (** names must be in format FIRST_LAST **)")
-    st.write("- Delete student profile to clear their training data if needed")
+    st.write("- For the training data upload via google drive, upload a folder with all of the intern's folders, and ensure each folder has at least one solo image that begins with 'FIRST LAST - Bio' (i.e. Giacomo Pugliese  - Bio - Middle School Jumpstart Program - July 9th .jpg).")
+    st.write("- Alternatively, create student profiles and upload solo images of them to train the AI. All names must be in format FIRST_LAST.")
+    st.write("- Delete student profile to clear their training data if needed.")
     st.subheader("Interns in System")
-    st.write("- Displays all of the interns currently in your program's AI")
+    st.write("- Displays all of the interns currently in your program's AI.")
     st.subheader("Detect Interns in Photos")
-    st.write("- Insert a comma seperated list of the folder links of your google drive containing intern photos")
+    st.write("- Insert a comma seperated list of the folder links of your google drive containing intern photos.")
     st.write("- Add a destination drive folder if you want the labeled intern folders to go somewhere different than the folder containing the input photos.")
     st.write("- Click 'Start Labeling' and allow the AI to sort the images into individual student folders directly into the drive.")
-    st.write("- When sorting, please don't leave tab. Note that a bad internet connection might retrigger the labeling process from the start (won't duplicate imgages in sorted folders however)")
+    st.write("- When sorting, please don't leave the tab and keep background processes on your computer to a minimum. Note that a weak internet connection may cause unexpected behavior, so please ensure a stable connection.")
     st.subheader("Renaming tool")
-    st.write("- Insert the folder link of your google drive folder containing program's students at a particular location")
-    st.write("- Choose the custom file ending for that location (i.e. ending would be '_Jumpstart_Group_1' for a file you want named 'Giacomo_Pugliese_2023_Jumpstart_Group_1')")
-    st.write("- Click 'Start Renaming' and have the renamed pictures go right into the drive folder")
+    st.write("- Insert the folder link of your google drive folder containing program's students at a particular location. All images must be in format FIRST_LAST_YEAR_IMAGE_NAME (i.e. 'Giacomo_Pugliese_2023_img629.jpg).")
+    st.write("- Choose the custom file ending for that location (i.e. ending would be '_Jumpstart_Group_1' for a file you want named 'Giacomo_Pugliese_2023_Jumpstart_Group_1').")
+    st.write("- Click 'Start Renaming' and have the renamed pictures go right into the drive folder.")
 
 
 st.header('User Credentials')
@@ -640,7 +649,7 @@ try:
                     if response.status_code == 200:
                         st.session_state['creds'] = response.json().get('creds')
                         print(st.session_state['creds'])
-                        st.success("Google account successfully authenticated.")
+                        st.success("Google account successfully authenticated!")
                         st.session_state['final_auth'] = True
                         break
                     time.sleep(1)
@@ -733,14 +742,14 @@ if st.button('Process Training Data'):
                     result = future.result()  # result is either None or the error_name
                     if result is not None:  # if the result is not None, an error has occurred
                         interns_without_training_data.append(result)
-                    progress_report.text(f"Training progress: ({i}/{len(intern_folders)})")
+                    progress_report.text(f"Training progress: {i}/{len(intern_folders)}")
                     i = i +1
 
         # After all interns have been processed, if there were interns without training data, display a Streamlit error
         if interns_without_training_data:
             interns_without_training_data = [intern for intern in interns_without_training_data if intern != 'Training Images']
             st.error(f"The following interns have no properly formatted training data: {', '.join(interns_without_training_data)}")
-        st.balloons()
+        st.success("Program training complete!")
 
 st.subheader("Add training data manually")
 person_name = st.text_input("Enter the intern's name")
@@ -810,11 +819,25 @@ def process_file_wrapper(args):
 st.header('Detect Interns in Photos')
 folder_links = st.text_area('Enter Google Drive Folder links (comma separated)')
 destination_folder_link = st.text_input('Enter Google Drive Destination Folder link (Optional)')
-st.caption("Warning: A weak wifi connection can lead to the labeling process being randomly retriggered, but the photos will never be duplicated to the drive. To prevent this, ensure a stable internet connection while running.")
+st.caption("Warning: A weak wifi connection can lead to unexpected behavior, so please ensure a stable connection.")
 start_processing = st.button('Start Labeling')
+
+try:
+    links = [folder_links, destination_folder_link]
+    if links != st.session_state['cache']['links']:
+        st.session_state['cache'] = {
+                                        "links": links,
+                                        "labeled_files": [],
+                                        "file_progress": 0,
+                                        "created_folders": [],
+                                        "folder_progress": 0
+                                    }
+except:
+    pass
 
 if start_processing:
     try:
+        flag = False
         if not folder_links:
             st.error("Please upload your google drive folders")
         elif collection_id == 'your-default-collection-id':
@@ -863,8 +886,10 @@ if start_processing:
                 
                 with st.spinner("Creating folders"):
                     progress_report_folder = st.empty()
+                    progress_report_folder.text("Initializing folder creation...")
                     person_folder_dict = {}
-                    arguments = [(service, destination_folder_id, person) for person in person_names + ['Group Photos']]
+                    removed_folders = [person for person in person_names if person not in st.session_state['cache']['created_folders']] 
+                    arguments = [(service, destination_folder_id, person) for person in removed_folders]
                     completed_folders = 0
                     
                     with ProcessPoolExecutor(max_workers=15) as executor:
@@ -873,8 +898,10 @@ if start_processing:
                             try:
                                 person, folder = future.result()
                                 person_folder_dict[person] = folder
+                                st.session_state['cache']['created_folders'].append(folder['name'])
+                                st.session_state['cache']['folder_progress'] +=1
                                 completed_folders += 1
-                                progress_report_folder.text(f"Folder creation progress: ({completed_folders}/{len(arguments)})")
+                                progress_report_folder.text(f"Folder creation progress: {max(st.session_state['cache']['folder_progress'], completed_folders)}/{len(arguments)}")
                             except:
                                 pass
 
@@ -905,7 +932,7 @@ if start_processing:
                             if page_token is None:
                                 break
 
-                    progress_report.text(f"Labeling progress: ({0}/{total_files})")
+                    progress_report.text(f"Initializing labeling...")
 
                     for folder_id in folder_ids:
                         page_token = None
@@ -917,18 +944,27 @@ if start_processing:
                                                                                                 pageToken=page_token,
                                                                                                 pageSize=1000))
                             items = response.get('files', [])
-                            arguments = [(file, service, destination_folder_id, person_images_dict, group_photo_threshold, collection_id, person_folder_dict,) for file in items]
+                            print(items)
+                            new_items = [file for file in items if file['name'] not in st.session_state['cache']['labeled_files']]
+                            items = new_items
+                            print(st.session_state['cache']['labeled_files'])
 
+                            arguments = [(file, service, destination_folder_id, person_images_dict, group_photo_threshold, collection_id, person_folder_dict,) for file in items]
                             with ProcessPoolExecutor(max_workers=15) as executor:
                                 futures = {executor.submit(process_file_wrapper, arg): arg for arg in arguments}
                                 for future in as_completed(futures):
                                     try:
                                         # Handling the future completion
                                         result = future.result()  # replace with appropriate handling if process_file_wrapper returns something
+                                        st.session_state['cache']['labeled_files'].append(result)
+                                        print('result: ' + result)
                                     except:
                                         pass
                                     labeled_files += 1
-                                    progress_report.text(f"Labeling progress: ({labeled_files}/{total_files})")
+                                    st.session_state['cache']['file_progress'] += 1
+                                    remaining_time = (total_files - max(labeled_files, st.session_state['cache']['file_progress'])) * (1/30)
+                                    flag = True
+                                    progress_report.text(f"Labeling progress: {max(labeled_files, st.session_state['cache']['file_progress'])}/{total_files} ({round(remaining_time, 1)} minutes remaining)")
 
                             page_token = response.get('nextPageToken', None)
                             if page_token is None:
@@ -936,14 +972,27 @@ if start_processing:
 
                     consolidate_labels(collection_id)
 
+                    if not flag:
+                        progress_report.text("")
+                        progress_report_folder.text("")
+
                     st.session_state['download_zip_created'] = True  
-                    st.balloons()
-    except:
-        st.error('Experiencing network issues, please refresh page and try again.')
+                    st.success("All photos labeled successfully!")
+    except Exception as e:
+        st.error(f'Experiencing network issues, please refresh page and try again: {e}')
 
 
 if 'download_zip_created' in st.session_state and st.session_state['download_zip_created']:  
     try:
+        drive_link = destination_folder_link if destination_folder_link != '' else folders[0]
+        st.markdown(f"""
+                <a href="{drive_link}" target="_blank" style="color: #8cdaf2;">
+                    Click to view sorted photos
+
+
+                </a>
+                """, unsafe_allow_html=True)
+        st.text("\n\n\n")        
         with open(f'{collection_id}/labels.txt', 'r') as f:
             st.download_button(
                 label="Download all textual labels",
@@ -980,7 +1029,7 @@ def extract_drive_id(drive_link):
 
 # Initial Streamlit layout
 st.header('Naming Tool')
-folder_link_or_id = st.text_input('Enter Google Drive Folder Link or ID for Renaming')
+folder_link_or_id = st.text_input('Enter Google Drive Folder Link for Renaming')
 file_name_ending = st.text_input('Enter your custom file name ending')
 start_renaming = st.button('Start Renaming')
 
@@ -996,6 +1045,7 @@ if start_renaming and folder_link_or_id:
             folder_id_rename = match.group(1)
         else:
             folder_id_rename = folder_link_or_id
+
 
         # Load client info from the oauth credentials file
         with open('credentials.json', 'r') as f:
@@ -1053,5 +1103,12 @@ if start_renaming and folder_link_or_id:
 
 
                 st.success("All files renamed successfully!")
+                st.markdown(f"""
+                <a href="{folder_link_or_id}" target="_blank" style="color: #8cdaf2;">
+                    Click to continue to view renamed images
+
+
+                </a>
+                """, unsafe_allow_html=True)
         except Exception as e:
-            st.error(f"Error processing the folder: {e}")
+            st.error(f"Please enter a valid and properly formatted drive folder!")
