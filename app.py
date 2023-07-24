@@ -40,7 +40,7 @@ from googleapiclient.http import MediaFileUpload
 import traceback
 import pyheif
 from urllib.parse import urlparse, parse_qs
-
+from pickle_functions import process_folder, process_file, process_file_wrapper, create_folder_wrapper
 logging.basicConfig(level=logging.INFO)
 
 st.set_option('deprecation.showfileUploaderEncoding', False)
@@ -84,14 +84,6 @@ def save_file_locally(file, person_name):
     with open(file_path, "wb") as f:
         f.write(file.read())
     return file_path
-
-
-def resize_image(image, basewidth):
-    img = Image.open(image)
-    wpercent = (basewidth/float(img.size[0]))
-    hsize = int((float(img.size[1])*float(wpercent)))
-    img = img.resize((basewidth,hsize), Image.ANTIALIAS)
-    return img
 
 def delete_collection(collection_id):
     try:
@@ -230,21 +222,6 @@ def make_request_with_exponential_backoff(request):
     except:
         return None
 
-def sanitize_name(name):
-    """Sanitize names to match AWS requirements for ExternalImageId"""
-    # Remove everything after a hyphen, an underscore or ".jpg"
-    name = re.sub(r' -.*|_.*|\.jpg|\.JPG|\.jpeg|\.JPEG|\.png|\.PNG|\.heic|\.HEIC', '', name)
-    # Keep only alphabets, spaces, and hyphens
-    name = re.sub(r'[^a-zA-Z \-]', '', name)
-    # Replace hyphens and spaces with underscores
-    name = re.sub(r'[- ]', '_', name)
-    # Replace multiple underscores with a single underscore
-    name = re.sub(r'[_]+', '_', name)
-    # Remove leading underscore if it exists
-    if name.startswith('_'):
-        name = name[1:]
-    return name
-
 def correct_image_orientation(image):
     try:
         for orientation in ExifTags.TAGS.keys():
@@ -318,76 +295,6 @@ def list_collections(max_results=20):
         collection_ids.remove(default_id)
     return collection_ids
 
-def process_file(file, service, folder_id, person_images_dict, group_photo_threshold, collection_id, person_folder_dict):
-    print(f"{file['name']} started")
-    try:
-        # Initialize persons
-        persons = []
-        request = service.files().get_media(fileId=file['id'])
-        # Download and process the image
-        fh = io.BytesIO()
-        downloader = MediaIoBaseDownload(fh, request)
-        done = False
-        while done is False:
-            _, done = downloader.next_chunk()
-
-        if file['name'].endswith('.heic') or file['name'].endswith('.HEIC'):
-            heif_file = pyheif.read(fh.getvalue())
-            img = Image.frombytes(heif_file.mode, heif_file.size, heif_file.data, "raw", heif_file.mode)
-            byte_arr = io.BytesIO()
-            img.save(byte_arr, format='JPEG')
-            img.save('converted3.jpg')
-            byte_img = byte_arr.getvalue()
-        else:  # This will cover both .jpg and .png files
-            img_io = io.BytesIO(fh.getvalue())
-            img = resize_image(img_io, 1000)
-            if img.mode != 'RGB':  # Convert to RGB if not already
-                img = img.convert('RGB')
-            byte_arr = io.BytesIO()
-            img.save(byte_arr, format='JPEG')
-            byte_img = byte_arr.getvalue()
-
-        detected_persons = find_matching_faces(byte_img, collection_id)
-
-        if len(set(detected_persons)) >= group_photo_threshold:
-            person_images_dict['Group Photos'].append(file['name'])
-            persons = ['Group Photos']
-        else:
-            persons = detected_persons
-
-        for person in set(persons):
-            if person not in person_images_dict:
-                person_images_dict[person] = []
-            person_images_dict[person].append(file['name'])
-
-            # Get the person's folder from the dictionary
-            folder = person_folder_dict[person]
-
-            current_year = datetime.now().year
-            new_file_name = f"{person}_{current_year}_{file['name']}"
-            # Check if file already exists in the destination folder
-            search_response = make_request_with_exponential_backoff(service.files().list(q=f"name='{new_file_name}' and '{folder['id']}' in parents and trashed=false",
-                                                                                        spaces='drive',
-                                                                                        fields='files(id, name)'))
-
-            # If file does not exist, then copy it
-            if not search_response.get('files', []):
-                copied_file = make_request_with_exponential_backoff(service.files().copy(fileId=file['id'], body={"name": new_file_name, "parents": [folder['id']]}))
-
-
-    except Exception as e:
-        print(f"{file['name']} threw an error: {e}")
-        traceback.print_exc()  # This line prints the full traceback
-
-    # Generate a unique filename using uuid library
-    unique_filename = str(uuid.uuid4()) + '.txt'
-    with open(f'{collection_id}/labels/{unique_filename}', 'w') as f:
-        # Write the image name and persons detected to the file
-        f.write(f"{file['name']}: {', '.join(set(persons))}")
-
-    print(f"{file['name']}: {', '.join(set(persons))}")
-    return file['name']
-
 def convert_heic_to_jpeg(file_name):
     # Full path to the original HEIC file
     original_file_path = os.path.abspath(file_name)
@@ -418,121 +325,6 @@ def convert_heic_to_jpeg(file_name):
     os.remove(jpeg_filename)
 
     return byte_img
-
-
-
-def process_folder(folder, service, collection_id, parent_folder):
-    has_training_image = False
-    temp_file_path = None
-    unique_filename = None
-
-    query = f"'{folder['id']}' in parents and mimeType != 'application/vnd.google-apps.folder' and trashed = false"
-    intern_images = service.files().list(q=query).execute().get('files', [])
-
-    query = f"'{parent_folder}' in parents and name='Training Images' and trashed = false"
-    results = service.files().list(q=query).execute().get('files', [])
-    
-    if results:
-        training_images_folder_id = results[0]['id']
-    else:
-        file_metadata = {
-            'name': 'Training Images',
-            'mimeType': 'application/vnd.google-apps.folder',
-            'parents': [parent_folder]
-        }
-        training_images_folder = service.files().create(body=file_metadata, fields='id').execute()
-        training_images_folder_id = training_images_folder['id']
-
-    for img in intern_images:
-        try:
-            if 'bio' in img['name'].lower():
-                image_id = img['id']
-                image_name = img['name']
-                request = service.files().get_media(fileId=image_id)
-                fh = io.BytesIO()
-                downloader = MediaIoBaseDownload(fh, request)
-                done = False
-                while done is False:
-                    _, done = downloader.next_chunk()
- 
-                    
-                if image_name.endswith('.heic') or image_name.endswith('.HEIC'):
-                    # Save the HEIC file to the local directory first
-                    unique_heic_filename = f'{uuid.uuid4()}.heic'
-                    fh = io.BytesIO()
-                    request = service.files().get_media(fileId=image_id)
-                    downloader = MediaIoBaseDownload(fh, request)
-                    done = False
-                    while done is False:
-                        _, done = downloader.next_chunk()
-
-                    # Now fh holds the file content
-                    with open(unique_heic_filename, 'wb') as f:  # Open a file in binary mode for writing
-                        f.write(fh.getvalue())  # Write the content
-
-                    
-                    # Then convert the saved HEIC file to JPEG
-                    byte_img = convert_heic_to_jpeg(unique_heic_filename)
-
-                else:
-                    img_io = io.BytesIO(fh.getvalue())
-                    img = resize_image(img_io, 1000)
-                    if img.mode != 'RGB':  # Convert to RGB if not already
-                       img = img.convert('RGB')
-                    byte_arr = io.BytesIO()
-                    img.save(byte_arr, format='JPEG')
-                    byte_img = byte_arr.getvalue()
-
-                intern_name = folder['name']
-                print(intern_name)
-                sanitized_intern_name = sanitize_name(intern_name)
-                print(sanitized_intern_name)
-                if sanitized_intern_name not in list_faces_in_collection(collection_id):
-                    upload_success = upload_file_to_s3(io.BytesIO(byte_img), 'giacomo-aws-bucket', sanitized_intern_name)
-                    if upload_success:
-                        print(add_faces_to_collection('giacomo-aws-bucket', sanitized_intern_name, collection_id, sanitized_intern_name))
-                        print(f'Person {sanitized_intern_name} added successfully')
-                        # Copy the original image to 'Training Images' folder in Google Drive
-                        file_extension = os.path.splitext(image_name)[1]  # Extracting the file extension from the original name
-                        file_metadata = {
-                            'name': f'{sanitized_intern_name}{file_extension}',  # Using sanitized name and original extension
-                            'parents': [training_images_folder_id]
-                        }
-                        copied_file = service.files().copy(fileId=image_id, body=file_metadata).execute()
-                    else:
-                        print('Failed to upload image')
-                else:
-                    print(f'{sanitized_intern_name} already in system')
-
-                # After processing the image and saving to byte_img:
-
-                
-                has_training_image = True
-                break 
-
-        except Exception as e:
-            print(f"{image_name} threw an error: {e}")
-            traceback.print_exc()  # This line prints the full traceback
-
-    if not has_training_image:
-        print(folder['name'] + 'has no training data!')
-        intern_name = folder['name']
-        # split the intern_name on ' - ', and return the part before ' - '
-        error_name = intern_name.split(' - ', 1)[0] if ' - ' in intern_name else intern_name
-        return error_name  # return the error_name in case of error
-
-    return None  # return None if there was no error
-
-def create_folder_wrapper(arg):
-    service, destination_folder_id, person = arg
-    folder_query = f"name='{person}' and '{destination_folder_id}' in parents and trashed=false"
-    folder_search = make_request_with_exponential_backoff(service.files().list(q=folder_query))
-    if not folder_search.get('files', []):
-        metadata = {'name': person, 'mimeType': 'application/vnd.google-apps.folder', 'parents': [destination_folder_id]}
-        folder = make_request_with_exponential_backoff(service.files().create(body=metadata, fields='id'))
-    else:
-        folder = folder_search.get('files', [])[0]
-    return person, folder
 
 if 'last_uploaded_file' not in st.session_state:
     st.session_state['last_uploaded_file'] = None
@@ -813,8 +605,6 @@ st.button("Refresh page")
 ########################################################################################
 #    DETECT SECTION
 
-def process_file_wrapper(args):
-    return process_file(*args)
 
 st.header('Detect Interns in Photos')
 folder_links = st.text_area('Enter Google Drive Folder links (comma separated)')
