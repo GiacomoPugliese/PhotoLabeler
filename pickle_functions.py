@@ -194,7 +194,7 @@ def find_matching_faces(photo, collection_id):
             response = client.search_faces_by_image(
                 CollectionId=collection_id,
                 Image={'Bytes': face_bytes},
-                FaceMatchThreshold=75,
+                FaceMatchThreshold=70,
                 MaxFaces=5
             )
             face_matches.extend([match['Face']['ExternalImageId'] for match in response['FaceMatches']])
