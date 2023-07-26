@@ -679,6 +679,7 @@ if start_processing:
                     progress_report_folder.text("Processing folders...")
                     person_folder_dict = {}
                     removed_folders = [person for person in person_names if person not in st.session_state['cache']['created_folders']] 
+                    removed_folders.append("Group Photos")
                     arguments = [(service, destination_folder_id, person) for person in removed_folders]
                     completed_folders = 0
                     

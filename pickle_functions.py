@@ -237,7 +237,7 @@ def process_folder(folder, service, collection_id, parent_folder):
 
     for img in intern_images:
         try:
-            if 'bio' in img['name'].lower():
+            if 'bio' in img['name'].lower() or 'headshot' in img['name'].lower():
                 image_id = img['id']
                 image_name = img['name']
                 request = service.files().get_media(fileId=image_id)
