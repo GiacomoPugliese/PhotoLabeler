@@ -758,6 +758,11 @@ if start_processing:
                                             progress_report.text(f"Labeling progress: {max(labeled_files, st.session_state['cache']['file_progress'])}/{total_files} ({round(remaining_time, 1)} minutes remaining)")
                                         except Exception as e:
                                             print (e)
+                                            labeled_files += 1
+                                            st.session_state['cache']['file_progress'] += 1
+                                            print(st.session_state['cache']['file_progress'])
+                                            remaining_time = (total_files - max(labeled_files, st.session_state['cache']['file_progress'])) * (1/30)
+                                            flag = True
                                         
 
                                 page_token = response.get('nextPageToken', None)
