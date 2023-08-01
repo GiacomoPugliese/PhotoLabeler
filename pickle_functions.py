@@ -42,7 +42,7 @@ import pyheif
 from urllib.parse import urlparse, parse_qs
 logging.basicConfig(level=logging.INFO)
 
-# import pyheif  # Assuming this is a library for working with HEIF/HEIC image files
+import pyheif  # Assuming this is a library for working with HEIF/HEIC image files
 
 # Set AWS details (replace with your own details)
 AWS_REGION_NAME = 'us-east-2'
