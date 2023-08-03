@@ -742,7 +742,7 @@ if start_processing:
                                 print(st.session_state['cache']['labeled_files'])
 
                                 arguments = [(file, service, destination_folder_id, person_images_dict, group_photo_threshold, collection_id, person_folder_dict,) for file in items]
-                                with ProcessPoolExecutor(max_workers=30) as executor:
+                                with ProcessPoolExecutor(max_workers=15) as executor:
                                     futures = {executor.submit(process_file_wrapper, arg): arg for arg in arguments}
                                     for future in as_completed(futures):
                                         try:
