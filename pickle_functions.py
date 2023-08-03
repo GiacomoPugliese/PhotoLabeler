@@ -329,12 +329,22 @@ def process_file(file, service, folder_id, person_images_dict, group_photo_thres
             _, done = downloader.next_chunk()
 
         if file['name'].endswith('.heic') or file['name'].endswith('.HEIC'):
-            heif_file = pyheif.read(fh.getvalue())
-            img = Image.frombytes(heif_file.mode, heif_file.size, heif_file.data, "raw", heif_file.mode)
-            byte_arr = io.BytesIO()
-            img.save(byte_arr, format='JPEG')
-            img.save('converted3.jpg')
-            byte_img = byte_arr.getvalue()
+            try:
+                heif_file = pyheif.read(fh.getvalue())
+                img = Image.frombytes(heif_file.mode, heif_file.size, heif_file.data, "raw", heif_file.mode)
+                byte_arr = io.BytesIO()
+                img.save(byte_arr, format='JPEG')
+                img.save('converted3.jpg')
+                byte_img = byte_arr.getvalue()
+            except:
+                img_io = io.BytesIO(fh.getvalue())
+                img = resize_image(img_io, 1000)
+                if img.mode != 'RGB':  # Convert to RGB if not already
+                    img = img.convert('RGB')
+                byte_arr = io.BytesIO()
+                img.save(byte_arr, format='JPEG')
+                byte_img = byte_arr.getvalue()
+                
         else:  # This will cover both .jpg and .png files
             img_io = io.BytesIO(fh.getvalue())
             img = resize_image(img_io, 1000)
