@@ -38,11 +38,10 @@ import time
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from googleapiclient.http import MediaFileUpload
 import traceback
-import pyheif
 from urllib.parse import urlparse, parse_qs
-logging.basicConfig(level=logging.INFO)
+import pyheif
 
-import pyheif  # Assuming this is a library for working with HEIF/HEIC image files
+logging.basicConfig(level=logging.INFO)
 
 # Set AWS details (replace with your own details)
 AWS_REGION_NAME = 'us-east-2'

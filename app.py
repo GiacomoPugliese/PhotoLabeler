@@ -38,9 +38,10 @@ import time
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from googleapiclient.http import MediaFileUpload
 import traceback
-import pyheif
 from urllib.parse import urlparse, parse_qs
 from pickle_functions import process_folder, process_file, process_file_wrapper, create_folder_wrapper
+import pyheif
+
 logging.basicConfig(level=logging.INFO)
 
 st.set_option('deprecation.showfileUploaderEncoding', False)
