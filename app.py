@@ -42,13 +42,13 @@ from urllib.parse import urlparse, parse_qs
 from pickle_functions import process_folder, process_file, process_file_wrapper, create_folder_wrapper
 import pyheif
 
-logging.basicConfig(level=logging.INFO)
-
 st.set_option('deprecation.showfileUploaderEncoding', False)
 st.set_page_config(
     page_title='SmartLabel',
     page_icon='camera'
 )   
+
+logging.basicConfig(level=logging.INFO)
 hide_streamlit_style = """ <style> #MainMenu {visibility: hidden;} footer {visibility: hidden;} </style> """ 
 st.markdown(hide_streamlit_style, unsafe_allow_html=True)
 
@@ -342,7 +342,7 @@ if 'last_uploaded_file' not in st.session_state:
                                     "folder_progress": 0
                                 }
 
-st.title("Leadership Initiatives Photo Labeler")
+st.title("LI Photo Labeler")
 st.caption("By Giacomo Pugliese")
 with st.expander("Click to view full directions for this site"):
     st.subheader("User Credentials")
