@@ -400,11 +400,11 @@ deleted_collection = 0
 display_programs = 0
 
 with col1:
-    collection_id = st.text_input("Enter your program ID to sign in", "")
+    collection_id = st.text_input("Program ID to sign in", "")
     if collection_id == '':
         collection_id = 'your-default-collection-id'
     create_collection(collection_id)
-    if st.button("View programs"):
+    if st.button("View Programs"):
         collections = list_collections()
         if collections:
             display_programs = 1
@@ -412,8 +412,8 @@ with col1:
             display_programs = 2
 
 with col2:
-    deleted_program = st.text_input("Enter program ID to delete")
-    if st.button("Delete this program") and deleted_program != 'your-default-collection-id':
+    deleted_program = st.text_input("Program ID to delete")
+    if st.button("Delete This Program") and deleted_program != 'your-default-collection-id':
             if(deleted_program not in list_collections()):
                 st.error("Program ID doesn't exist")
             else:
@@ -433,7 +433,7 @@ if(deleted_collection == 1):
 
 
 
-st.subheader("Google authentication")
+st.subheader("Google Authentication")
 
 def nav_to(url):
     nav_script = """
@@ -488,7 +488,7 @@ os.makedirs(collection_id, exist_ok=True)
 
 st.subheader("Add training data using google drive folder")
 # Drive directory link for bulk training data
-training_data_directory_link = st.text_input("Enter a Google Drive directory link for bulk training data")
+training_data_directory_link = st.text_input("Google Drive directory URL for bulk training data")
 
 if st.button('Process Training Data'):
     if not st.session_state['final_auth']:
@@ -571,12 +571,12 @@ if st.button('Process Training Data'):
         st.success("Program training complete!")
 
 st.subheader("Add training data manually")
-person_name = st.text_input("Enter the intern's name")
+person_name = st.text_input("Intern's name")
 person_image = st.file_uploader('Upload a solo image of the intern', type=['jpg', 'png'])
 
 col1, col2, col3, col4, col5 = st.columns(5)
 
-if st.button('Add this image'):
+if st.button('Add This Image'):
     if(collection_id == 'your-default-collection-id'):
         st.error("Please enter a program id!")
     elif not re.match(r"^[A-Za-z]+_[A-Za-z]+$", person_name):  
@@ -604,7 +604,7 @@ if st.button('Add this image'):
         else:
             st.error('Please enter a name, upload an image, and provide a program id')
 
-if st.button('Delete intern'):
+if st.button('Delete Intern'):
     if(collection_id == 'your-default-collection-id'):
         st.error("Please enter a program id!")
     else:
@@ -627,15 +627,15 @@ st.header(f'Interns in System ({len(person_names)})')
 st.write(', '.join(person_names))
 if len(person_names) == 0:
     'No interns added yet.'
-st.button("Refresh page")
+st.button("Refresh Page")
 
 ########################################################################################
 #    DETECT SECTION
 
 
 st.header('Detect Interns in Photos')
-folder_links = st.text_area('Enter Google Drive Folder links (comma separated)')
-destination_folder_link = st.text_input('Enter Google Drive Destination Folder link (Optional)')
+folder_links = st.text_area('Input Google Drive Folders URLs (comma separated)')
+destination_folder_link = st.text_input('Google Drive Destination Folder URL (Optional)')
 st.caption("Warning: A weak wifi connection can lead to unexpected behavior, so please ensure a stable connection.")
 start_processing = st.button('Start Labeling')
 
@@ -669,7 +669,7 @@ if start_processing:
             for folder_link in folders:
                 match = re.search(r'\/([a-zA-Z0-9-_]+)$', folder_link)
                 if(match is None):
-                    st.error(f'Invalid Google Drive link: {folder_link}. Please make sure the link is correct.')
+                    st.error(f'Invalid Google Drive URL: {folder_link}. Please make sure the link is correct.')
                     error = True
                     break
                 else:
@@ -856,7 +856,7 @@ def extract_drive_id(drive_link):
 
 # Initial Streamlit layout
 st.header('Naming Tool')
-folder_link_or_id = st.text_input('Enter Google Drive Folder Link for Renaming')
+folder_link_or_id = st.text_input('Google Drive Folder URL for Renaming')
 file_name_ending = st.text_input('Enter your custom file name ending')
 start_renaming = st.button('Start Renaming')
 
