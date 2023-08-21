@@ -39,7 +39,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 from googleapiclient.http import MediaFileUpload
 import traceback
 from urllib.parse import urlparse, parse_qs
-import pyheif
+# import pyheif
 
 logging.basicConfig(level=logging.INFO)
 
