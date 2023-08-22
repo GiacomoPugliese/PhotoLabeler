@@ -40,7 +40,7 @@ from googleapiclient.http import MediaFileUpload
 import traceback
 from urllib.parse import urlparse, parse_qs
 from pickle_functions import process_folder, process_file, process_file_wrapper, create_folder_wrapper
-# import pyheif
+import pyheif
 
 st.set_option('deprecation.showfileUploaderEncoding', False)
 st.set_page_config(
@@ -376,7 +376,7 @@ with st.expander("Click to view full directions for this site"):
     st.write("- If needed, there are options to view all programs in the system and delete uneeded accounts.")
     st.write("- Authenticate with Google before performing any actions. Google authentication is needed for all parts of this site.")
     st.subheader("Configure Training Data")
-    st.write("- For the training data upload via google drive, upload a folder with all of the intern's folders, and ensure each folder has at least one solo image that begins with 'FIRST LAST - Bio' (i.e. Giacomo Pugliese  - Bio - Middle School Jumpstart Program - July 9th .jpg).")
+    st.write("- For the training data upload via google drive, upload a folder with all of the intern's folders, and ensure each folder has at least one solo image that begins with 'FIRST LAST - Bio' (i.e. Giacomo Pugliese  - Bio - Middle School Jumpstart Program - July 9th .jpg). Please also make sure the folder has a subfolder called 'Training Images'.")
     st.write("- Alternatively, create student profiles and upload solo images of them to train the AI. All names must be in format FIRST_LAST.")
     st.write("- Delete student profile to clear their training data if needed.")
     st.subheader("Interns in System")
