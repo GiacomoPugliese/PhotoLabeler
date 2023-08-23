@@ -39,7 +39,8 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 from googleapiclient.http import MediaFileUpload
 import traceback
 from urllib.parse import urlparse, parse_qs
-from pickle_functions import process_folder, process_file, process_file_wrapper, create_folder_wrapper
+from pickle_functions import process_folder, create_folder_wrapper
+from process import process_files
 import pyheif
 
 st.set_option('deprecation.showfileUploaderEncoding', False)
@@ -267,45 +268,6 @@ def correct_image_orientation(image):
         pass
     return image
 
-def consolidate_labels(collection_id):
-    # Dictionary to store labels
-    labels_dict = {}
-
-    # Iterate over all text files in the labels directory
-    for filename in glob.glob(f'{collection_id}/labels/*.txt'):
-        with open(filename, 'r') as f:
-            # Read the labels from the file
-            line = f.readline().strip()
-            if ': ' in line:
-                image_name, persons = line.split(': ')
-                persons_list = persons.split(', ') if persons else []
-            else:
-                image_name = line[:-1]  # remove the trailing colon
-                persons_list = []
-
-            # Append the labels to the dictionary
-            for person in persons_list:
-                if person not in labels_dict:
-                    labels_dict[person] = []
-                labels_dict[person].append(image_name)
-
-        # Delete the file after processing
-        os.remove(filename)
-
-    # Identify the 'group' key (assuming it's there)
-    group_key = 'Group Photos'  # Change as needed
-    group_images = labels_dict.pop(group_key, None)
-
-    # Now, create a new consolidated file and write the 'group: images' at the top
-    with open(f'{collection_id}/labels.txt', 'w') as f:
-        if group_images is not None:
-            f.write(f'{group_key}: {", ".join(group_images)}\n\n')
-
-        # Write the rest of the labels
-        for person, images in labels_dict.items():
-            f.write(f'{person}: {", ".join(images)}\n\n')
-
-    st.session_state['download_zip_created'] = True
 
 def list_collections(max_results=20):
     """
@@ -385,6 +347,7 @@ with st.expander("Click to view full directions for this site"):
     st.write("- Insert a comma seperated list of the folder links of your google drive containing intern photos.")
     st.write("- Add a destination drive folder if you want the labeled intern folders to go somewhere different than the folder containing the input photos.")
     st.write("- Click 'Start Labeling' and allow the AI to sort the images into individual student folders directly into the drive.")
+    st.write("- To view the status of the labeling, click 'Check Status', and to stop the processing, click 'Terminate Job'. Please note that these are functional only after the job is submitted to the server.")
     st.write("- When sorting, please don't leave the tab and keep background processes on your computer to a minimum. Note that a weak internet connection may cause unexpected behavior, so please ensure a stable connection.")
     st.subheader("Renaming tool")
     st.write("- Insert the folder link of your google drive folder containing program's students at a particular location. All images must be in format FIRST_LAST_YEAR_IMAGE_NAME (i.e. 'Giacomo_Pugliese_2023_img629.jpg).")
@@ -458,6 +421,8 @@ try:
             st.text("\n\n\n")
             # Redirect user to the OAuth URL
             # nav_to(auth_url)
+        else:
+            st.error(f"Error processing photos: {response.status_code} {response.text}")
 
     if st.session_state['begin_auth']:    
         if st.button("Finalize Google Authentication"):
@@ -475,8 +440,9 @@ try:
             if not st.session_state['final_auth']:
                 st.error('Experiencing network issues, please refresh page and try again.')
                 st.session_state['begin_auth'] = False
-except:
-    pass
+except Exception as e:
+    print(e)
+    
 
 
 # Add a person or image, or delete a person
@@ -629,6 +595,7 @@ if len(person_names) == 0:
     'No interns added yet.'
 st.button("Refresh Page")
 
+
 ########################################################################################
 #    DETECT SECTION
 
@@ -637,7 +604,53 @@ st.header('Detect Interns in Photos')
 folder_links = st.text_area('Input Google Drive Folders URLs (comma separated)')
 destination_folder_link = st.text_input('Google Drive Destination Folder URL (Optional)')
 st.caption("Warning: A weak wifi connection can lead to unexpected behavior, so please ensure a stable connection.")
-start_processing = st.button('Start Labeling')
+
+
+col1, col2, col3, col4, col5 = st.columns(5)
+with col1:
+    start_processing = st.button('Start Labeling')
+
+def terminate_task():
+    # Define the endpoint URL for termination
+    terminate_url = "http://leadership-initiatives-0c372bea22f2.herokuapp.com/terminate"
+    
+    try:
+        response = requests.get(terminate_url)
+        response.raise_for_status()  # Raise an exception for HTTP errors
+
+        # Assuming your response is a JSON with a "status" key
+        termination_status = response.json()["status"]
+        st.info(termination_status)
+        
+    except requests.RequestException as e:
+        st.error(f"An error occurred: {str(e)}")
+
+with col2:
+    terminate= st.button("Terminate Job")
+
+if terminate:
+    terminate_task()
+
+def check_status():
+    # Define the endpoint URL
+    url = "http://leadership-initiatives-0c372bea22f2.herokuapp.com/status"
+    
+    try:
+        response = requests.get(url)
+        response.raise_for_status()  # Raise an exception for HTTP errors
+
+        # Assuming your response is a JSON with a "content" key
+        status_content = response.json()["content"]
+        st.info(status_content)
+        
+    except requests.RequestException as e:
+        st.error(f"An error occurred: {str(e)}")
+
+with col3:
+    status= st.button("Check Status")
+
+if status:
+    check_status()
 
 try:
     links = [folder_links, destination_folder_link]
@@ -703,14 +716,15 @@ if start_processing:
                 
                 with st.spinner("Creating folders"):
                     progress_report_folder = st.empty()
-                    progress_report_folder.text("Processing folders...")
+                    # progress_report_folder.text("Processing folders...")
                     person_folder_dict = {}
-                    removed_folders = [person for person in person_names if person not in st.session_state['cache']['created_folders']] 
+                    # removed_folders = [person for person in person_names if person not in st.session_state['cache']['created_folders']] 
+                    removed_folders = [person for person in person_names] 
                     removed_folders.append("Group Photos")
                     arguments = [(service, destination_folder_id, person) for person in removed_folders]
                     completed_folders = 0
                     
-                    with ProcessPoolExecutor(max_workers=15) as executor:
+                    with ProcessPoolExecutor(max_workers=10) as executor:
                         futures = {executor.submit(create_folder_wrapper, arg): arg for arg in arguments}
                         for future in as_completed(futures):
                             try:
@@ -719,11 +733,11 @@ if start_processing:
                                 st.session_state['cache']['created_folders'].append(folder['name'])
                                 st.session_state['cache']['folder_progress'] +=1
                                 completed_folders += 1
-                                progress_report_folder.text(f"Folder creation progress: {max(st.session_state['cache']['folder_progress'], completed_folders)}/{len(arguments)}")
-                            except:
-                                pass
+                                # progress_report_folder.text(f"Folder creation progress: {max(st.session_state['cache']['folder_progress'], completed_folders)}/{len(arguments)}")
+                            except Exception as e:
+                                print(e)
 
-                with st.spinner("Labeling images.."):
+                with st.spinner("Submitting labeling request.."):
                     progress_report = st.empty()
                     if not os.path.exists(f'{collection_id}/labels'):
                         os.makedirs(f'{collection_id}/labels')
@@ -732,11 +746,11 @@ if start_processing:
                     person_images_dict = {
                         'Group Photos': []
                     }
+                    image_names = []  # List to store names of the images
                     group_photo_threshold = 13
                     for folder_id in folder_ids:
                         page_token = None
 
-                        # retrieve total amount of files
                         while True:  # added loop for pagination
                             response = make_request_with_exponential_backoff(service.files().list(q=f"'{folder_id}' in parents and trashed=false and mimeType != 'application/vnd.google-apps.folder'",
                                                                                                 spaces='drive',
@@ -746,68 +760,42 @@ if start_processing:
                             items = response.get('files', [])
                             total_files += len(items)
 
+                            # Storing the names of the images in the image_names list
+                            for item in items:
+                                image_names.append(item.get('name'))
+
                             page_token = response.get('nextPageToken', None)
                             if page_token is None:
                                 break
 
-                    progress_report.text(f"Processing photos...")
+                    # progress_report.text(f"Processing photos...")
 
-                    for folder_id in folder_ids:
-                        try:
-                            page_token = None
+                    print(person_folder_dict)
+                    
+                    data = {
+                        "folder_ids": folder_ids,
+                        "destination_folder_id": destination_folder_id,
+                        "person_images_dict": person_images_dict,
+                        "group_photo_threshold": group_photo_threshold,
+                        "collection_id": collection_id,
+                        "person_folder_dict": person_folder_dict,
+                        "labeled_files": 0,
+                        "total_files": total_files,
+                        "cache": st.session_state['cache'],
+                        "creds": st.session_state['creds'],
+                        "image_names": image_names
+                    }
 
-                            while True:
-                                response = make_request_with_exponential_backoff(service.files().list(q=f"'{folder_id}' in parents and trashed=false and mimeType != 'application/vnd.google-apps.folder'",
-                                                                                                    spaces='drive', 
-                                                                                                    fields='nextPageToken, files(id, name)',
-                                                                                                    pageToken=page_token,
-                                                                                                    pageSize=1000))
-                                items = response.get('files', [])
-                                print(items)
-                                new_items = [file for file in items if file['name'] not in st.session_state['cache']['labeled_files']]
-                                items = new_items
-                                print(st.session_state['cache']['labeled_files'])
 
-                                arguments = [(file, service, destination_folder_id, person_images_dict, group_photo_threshold, collection_id, person_folder_dict,) for file in items]
-                                with ProcessPoolExecutor(max_workers=15) as executor:
-                                    futures = {executor.submit(process_file_wrapper, arg): arg for arg in arguments}
-                                    for future in as_completed(futures):
-                                        try:
-                                            # Handling the future completion
-                                            result = future.result()  # replace with appropriate handling if process_file_wrapper returns something
-                                            st.session_state['cache']['labeled_files'].append(result)
-                                            print('result: ' + result)
-                                            labeled_files += 1
-                                            st.session_state['cache']['file_progress'] += 1
-                                            print(st.session_state['cache']['file_progress'])
-                                            remaining_time = (total_files - max(labeled_files, st.session_state['cache']['file_progress'])) * (1/30)
-                                            flag = True
-                                            progress_report.text(f"Labeling progress: {max(labeled_files, st.session_state['cache']['file_progress'])}/{total_files} ({round(remaining_time, 1)} minutes remaining)")
-                                        except Exception as e:
-                                            print (e)
-                                            labeled_files += 1
-                                            st.session_state['cache']['file_progress'] += 1
-                                            print(st.session_state['cache']['file_progress'])
-                                            remaining_time = (total_files - max(labeled_files, st.session_state['cache']['file_progress'])) * (1/30)
-                                            flag = True
-                                        
+                    response = requests.post("https://leadership-initiatives-0c372bea22f2.herokuapp.com/process", json=data)
+                    if response.status_code == 500:
+                        time.sleep(2)
+                        print(response)
+                        # response = requests.post("https://leadership-initiatives-0c372bea22f2.herokuapp.com/process", json=data)
 
-                                page_token = response.get('nextPageToken', None)
-                                if page_token is None:
-                                    break
-                        except:
-                            pass
-                    consolidate_labels(collection_id)
-
-                    if not flag:
-                        progress_report.text("")
-                        progress_report_folder.text("")
-
-                    st.session_state['download_zip_created'] = True  
-                    st.success("All photos labeled successfully!")
+        st.success("Photo labeling job submitted! Click on the 'Check Status' button to see the status of your job, and do not submit any jobs until your last one is finished processing.")            
     except Exception as e:
-        st.error(f'Experiencing network issues, please refresh page and try again: {e}')
-
+        print(e)
 
 if 'download_zip_created' in st.session_state and st.session_state['download_zip_created']:  
     try:
@@ -831,7 +819,6 @@ if 'download_zip_created' in st.session_state and st.session_state['download_zip
         pass
 
 
- 
 ##############################################################################################
 
 def extract_drive_id(drive_link):
