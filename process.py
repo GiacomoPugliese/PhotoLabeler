@@ -76,8 +76,8 @@ def convert_heic_to_jpeg(file_name):
 def add_faces_to_collection(bucket, photo, collection_id, external_image_id):
     # Set AWS details (replace with your own details)
     AWS_REGION_NAME = 'us-east-2'
-    AWS_ACCESS_KEY = 'AKIARK3QQWNWXGIGOFOH'
-    AWS_SECRET_KEY = 'ClAUaloRIp3ebj9atw07u/o3joULLY41ghDiDc2a'
+    AWS_ACCESS_KEY = 'AKIAU6GD2POX5ZUHSTGD'
+    AWS_SECRET_KEY = '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'
 
     # Initialize the S3 client
     s3 = boto3.client('s3',
@@ -107,8 +107,8 @@ def add_faces_to_collection(bucket, photo, collection_id, external_image_id):
 def list_faces_in_collection(collection_id):
     # Set AWS details (replace with your own details)
     AWS_REGION_NAME = 'us-east-2'
-    AWS_ACCESS_KEY = 'AKIARK3QQWNWXGIGOFOH'
-    AWS_SECRET_KEY = 'ClAUaloRIp3ebj9atw07u/o3joULLY41ghDiDc2a'
+    AWS_ACCESS_KEY = 'AKIAU6GD2POX5ZUHSTGD'
+    AWS_SECRET_KEY = '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'
 
     # Initialize the S3 client
     s3 = boto3.client('s3',
@@ -176,8 +176,8 @@ def upload_file_to_s3(file, bucket, object_name):
 def find_matching_faces(photo, collection_id):
     # Set AWS details (replace with your own details)
     AWS_REGION_NAME = 'us-east-2'
-    AWS_ACCESS_KEY = 'AKIARK3QQWNWXGIGOFOH'
-    AWS_SECRET_KEY = 'ClAUaloRIp3ebj9atw07u/o3joULLY41ghDiDc2a'
+    AWS_ACCESS_KEY = 'AKIAU6GD2POX5ZUHSTGD'
+    AWS_SECRET_KEY = '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'
 
     # Initialize the S3 client
     s3 = boto3.client('s3',

@@ -45,8 +45,8 @@ logging.basicConfig(level=logging.INFO)
 
 # Set AWS details (replace with your own details)
 AWS_REGION_NAME = 'us-east-2'
-AWS_ACCESS_KEY = 'AKIARK3QQWNWXGIGOFOH'
-AWS_SECRET_KEY = 'ClAUaloRIp3ebj9atw07u/o3joULLY41ghDiDc2a'
+AWS_ACCESS_KEY = 'AKIAU6GD2POX5ZUHSTGD'
+AWS_SECRET_KEY = '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'
 
 # Initialize the S3 client
 s3 = boto3.client('s3',

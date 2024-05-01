@@ -55,8 +55,8 @@ st.markdown(hide_streamlit_style, unsafe_allow_html=True)
 
 # Set AWS details (replace with your own details)
 AWS_REGION_NAME = 'us-east-2'
-AWS_ACCESS_KEY = 'AKIARK3QQWNWXGIGOFOH'
-AWS_SECRET_KEY = 'ClAUaloRIp3ebj9atw07u/o3joULLY41ghDiDc2a'
+AWS_ACCESS_KEY = 'AKIAU6GD2POX5ZUHSTGD'
+AWS_SECRET_KEY = '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'
 
 # Initialize the S3 client
 s3 = boto3.client('s3',
@@ -75,8 +75,8 @@ client = boto3.client('rekognition',
 def reset_s3():
     # Set AWS details (replace with your own details)
     AWS_REGION_NAME = 'us-east-2'
-    AWS_ACCESS_KEY = 'AKIARK3QQWNWXGIGOFOH'
-    AWS_SECRET_KEY = 'ClAUaloRIp3ebj9atw07u/o3joULLY41ghDiDc2a'
+    AWS_ACCESS_KEY = 'AKIAU6GD2POX5ZUHSTGD'
+    AWS_SECRET_KEY = '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'
 
     # Initialize the S3 client
     s3 = boto3.client('s3',
@@ -407,7 +407,7 @@ try:
     if st.button("Authenticate Google Account"):
         st.session_state['begin_auth'] = True
         # Request OAuth URL from the FastAPI backend
-        response = requests.get(f"{'https://leadership-initiatives-0c372bea22f2.herokuapp.com'}/auth?user_id={collection_id}")
+        response = requests.get(f"{'https://libackend-40b431c4b11a.herokuapp.com/'}/auth?user_id={collection_id}")
         if response.status_code == 200:
             # Get the authorization URL from the response
             auth_url = response.json().get('authorization_url')
@@ -429,7 +429,7 @@ try:
             with st.spinner("Finalizing authentication..."):
                 for i in range(6):
                     # Request token from the FastAPI backend
-                    response = requests.get(f"{'https://leadership-initiatives-0c372bea22f2.herokuapp.com'}/token/{collection_id}")
+                    response = requests.get(f"{'https://libackend-40b431c4b11a.herokuapp.com/'}/token/{collection_id}")
                     if response.status_code == 200:
                         st.session_state['creds'] = response.json().get('creds')
                         print(st.session_state['creds'])
@@ -787,7 +787,7 @@ if start_processing:
                     }
 
 
-                    response = requests.post("https://leadership-initiatives-0c372bea22f2.herokuapp.com/process", json=data)
+                    response = requests.post("https://libackend-40b431c4b11a.herokuapp.com/", json=data)
                     if response.status_code == 500:
                         time.sleep(2)
                         print(response)
