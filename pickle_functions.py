@@ -279,9 +279,9 @@ def process_folder(folder, service, collection_id, parent_folder):
                 sanitized_intern_name = sanitize_name(intern_name)
                 print(sanitized_intern_name)
                 if sanitized_intern_name not in list_faces_in_collection(collection_id):
-                    upload_success = upload_file_to_s3(io.BytesIO(byte_img), 'giacomo-aws-bucket', sanitized_intern_name)
+                    upload_success = upload_file_to_s3(io.BytesIO(byte_img), 'leadership-aws-bucket', sanitized_intern_name)
                     if upload_success:
-                        print(add_faces_to_collection('giacomo-aws-bucket', sanitized_intern_name, collection_id, sanitized_intern_name))
+                        print(add_faces_to_collection('leadership-aws-bucket', sanitized_intern_name, collection_id, sanitized_intern_name))
                         print(f'Person {sanitized_intern_name} added successfully')
                         # Copy the original image to 'Training Images' folder in Google Drive
                         file_extension = os.path.splitext(image_name)[1]  # Extracting the file extension from the original name

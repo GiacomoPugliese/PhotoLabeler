@@ -85,16 +85,16 @@ def reset_s3():
         aws_secret_access_key=AWS_SECRET_KEY
     )
 
-    # Delete objects within subdirectories in the bucket 'li-general-tasks'
+    # Delete objects within subdirectories in the bucket 'li-general-task'
     subdirs = ['input_videos/', 'output_videos/', 'images/']
     for subdir in subdirs:
-        objects = s3.list_objects_v2(Bucket='li-general-tasks', Prefix=subdir)
+        objects = s3.list_objects_v2(Bucket='li-general-task', Prefix=subdir)
         for obj in objects.get('Contents', []):
             if obj['Key'] != 'input_videos/outro.mp4':
-                s3.delete_object(Bucket='li-general-tasks', Key=obj['Key'])
+                s3.delete_object(Bucket='li-general-task', Key=obj['Key'])
                 
         # Add a placeholder object to represent the "directory"
-        s3.put_object(Bucket='li-general-tasks', Key=subdir)
+        s3.put_object(Bucket='li-general-task', Key=subdir)
 
 
 def save_file_locally(file, person_name):
@@ -230,9 +230,9 @@ def delete_face_from_collection(collection_id, face_id):
 def add_training_image_to_person(collection_id, person_name, image):
     # Upload the image to S3 bucket
     object_name = f'{person_name}_{len(list_faces_in_collection(collection_id)) + 1}.jpg'
-    upload_success = upload_file_to_s3(image, 'giacomo-aws-bucket', object_name)
+    upload_success = upload_file_to_s3(image, 'leadership-aws-bucket', object_name)
     if upload_success:
-        add_faces_to_collection('giacomo-aws-bucket', object_name, collection_id, object_name)
+        add_faces_to_collection('leadership-aws-bucket', object_name, collection_id, object_name)
 
 def make_request_with_exponential_backoff(request):
     for n in range(0, 5):
@@ -553,11 +553,11 @@ if st.button('Add This Image'):
             file_path = save_file_locally(person_image, person_name)
             # Upload the image to S3 bucket
             with open(file_path, "rb") as f:
-                upload_success = upload_file_to_s3(f, 'giacomo-aws-bucket', person_name)
+                upload_success = upload_file_to_s3(f, 'leadership-aws-bucket', person_name)
             if upload_success:
                 # Check if person already exists
                 if person_name not in list_faces_in_collection(collection_id):
-                    add_faces_to_collection('giacomo-aws-bucket', person_name, collection_id, person_name)
+                    add_faces_to_collection('leadership-aws-bucket', person_name, collection_id, person_name)
                     st.write('Intern added successfully')
                 else:
                     # If person already exists, just add the image to the person's existing images in the collection
