@@ -408,9 +408,7 @@ try:
         st.session_state['begin_auth'] = True
         # Request OAuth URL from the FastAPI backend
         url = f"{'https://leadership-initiatives-0c372bea22f2.herokuapp.com'}/auth?user_id={collection_id}"
-        st.write(url)
-        response = requests.get(url)
-        st.write(response)
+
         if response.status_code == 200:
             # Get the authorization URL from the response
             auth_url = response.json().get('authorization_url')
@@ -435,7 +433,7 @@ try:
                     response = requests.get(f"{'https://leadership-initiatives-0c372bea22f2.herokuapp.com'}/token/{collection_id}")
                     if response.status_code == 200:
                         st.session_state['creds'] = response.json().get('creds')
-                        print(st.session_state['creds'])
+                        st.write(st.session_state['creds'])
                         st.success("Google account successfully authenticated!")
                         st.session_state['final_auth'] = True
                         break
