@@ -407,7 +407,10 @@ try:
     if st.button("Authenticate Google Account"):
         st.session_state['begin_auth'] = True
         # Request OAuth URL from the FastAPI backend
-        response = requests.get(f"{'https://leadership-initiatives-0c372bea22f2.herokuapp.com'}/auth?user_id={collection_id}")
+        url = f"{'https://leadership-initiatives-0c372bea22f2.herokuapp.com'}/auth?user_id={collection_id}"
+        st.write(url)
+        response = requests.get(url)
+        st.write(response)
         if response.status_code == 200:
             # Get the authorization URL from the response
             auth_url = response.json().get('authorization_url')
