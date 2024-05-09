@@ -435,7 +435,7 @@ try:
                     response = requests.get(f"{'https://leadership-initiatives-0c372bea22f2.herokuapp.com'}/token/{collection_id}")
                     if response.status_code == 200:
                         st.session_state['creds'] = response.json().get('creds')
-                        print(st.session_state['creds'])
+                        st.write(st.session_state['creds'])
                         st.success("Google account successfully authenticated!")
                         st.session_state['final_auth'] = True
                         break
