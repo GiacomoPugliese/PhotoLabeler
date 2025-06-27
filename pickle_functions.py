@@ -213,106 +213,74 @@ def resize_image(image, basewidth):
     return img
 
 def process_folder(folder, service, collection_id, parent_folder):
-    has_training_image = False
-    temp_file_path = None
-    unique_filename = None
+    import re, os, io, uuid, traceback
+    from googleapiclient.http import MediaIoBaseDownload
 
+    pattern = re.compile(r'^[A-Za-z]+_[A-Za-z]+_\d{4}SF', re.IGNORECASE)
+
+    has_training_image = False
     query = f"'{folder['id']}' in parents and mimeType != 'application/vnd.google-apps.folder' and trashed = false"
     intern_images = service.files().list(q=query).execute().get('files', [])
 
     query = f"'{parent_folder}' in parents and name='Training Images' and trashed = false"
     results = service.files().list(q=query).execute().get('files', [])
-    
     if results:
         training_images_folder_id = results[0]['id']
     else:
-        file_metadata = {
-            'name': 'Training Images',
-            'mimeType': 'application/vnd.google-apps.folder',
-            'parents': [parent_folder]
-        }
-        training_images_folder = service.files().create(body=file_metadata, fields='id').execute()
-        training_images_folder_id = training_images_folder['id']
+        file_metadata = {'name': 'Training Images', 'mimeType': 'application/vnd.google-apps.folder', 'parents': [parent_folder]}
+        training_images_folder_id = service.files().create(body=file_metadata, fields='id').execute()['id']
 
     for img in intern_images:
         try:
-            if 'bio' in img['name'].lower() or 'headshot' in img['name'].lower():
+            if pattern.match(os.path.splitext(img['name'])[0]):
                 image_id = img['id']
                 image_name = img['name']
                 request = service.files().get_media(fileId=image_id)
                 fh = io.BytesIO()
                 downloader = MediaIoBaseDownload(fh, request)
                 done = False
-                while done is False:
+                while not done:
                     _, done = downloader.next_chunk()
- 
-                    
-                if image_name.endswith('.heic') or image_name.endswith('.HEIC'):
-                    # Save the HEIC file to the local directory first
+
+                if image_name.lower().endswith('.heic'):
                     unique_heic_filename = f'{uuid.uuid4()}.heic'
-                    fh = io.BytesIO()
-                    request = service.files().get_media(fileId=image_id)
-                    downloader = MediaIoBaseDownload(fh, request)
-                    done = False
-                    while done is False:
-                        _, done = downloader.next_chunk()
-
-                    # Now fh holds the file content
-                    with open(unique_heic_filename, 'wb') as f:  # Open a file in binary mode for writing
-                        f.write(fh.getvalue())  # Write the content
-
-                    
-                    # Then convert the saved HEIC file to JPEG
+                    with open(unique_heic_filename, 'wb') as f:
+                        f.write(fh.getvalue())
                     byte_img = convert_heic_to_jpeg(unique_heic_filename)
-
                 else:
                     img_io = io.BytesIO(fh.getvalue())
-                    img = resize_image(img_io, 1000)
-                    if img.mode != 'RGB':  # Convert to RGB if not already
-                       img = img.convert('RGB')
+                    img_resized = resize_image(img_io, 1000)
+                    if img_resized.mode != 'RGB':
+                        img_resized = img_resized.convert('RGB')
                     byte_arr = io.BytesIO()
-                    img.save(byte_arr, format='JPEG')
+                    img_resized.save(byte_arr, format='JPEG')
                     byte_img = byte_arr.getvalue()
 
                 intern_name = folder['name']
-                print(intern_name)
                 sanitized_intern_name = sanitize_name(intern_name)
-                print(sanitized_intern_name)
                 if sanitized_intern_name not in list_faces_in_collection(collection_id):
-                    upload_success = upload_file_to_s3(io.BytesIO(byte_img), 'giacomo-aws-bucket', sanitized_intern_name)
-                    if upload_success:
-                        print(add_faces_to_collection('giacomo-aws-bucket', sanitized_intern_name, collection_id, sanitized_intern_name))
-                        print(f'Person {sanitized_intern_name} added successfully')
-                        # Copy the original image to 'Training Images' folder in Google Drive
-                        file_extension = os.path.splitext(image_name)[1]  # Extracting the file extension from the original name
-                        file_metadata = {
-                            'name': f'{sanitized_intern_name}{file_extension}',  # Using sanitized name and original extension
-                            'parents': [training_images_folder_id]
-                        }
-                        copied_file = service.files().copy(fileId=image_id, body=file_metadata).execute()
+                    if upload_file_to_s3(io.BytesIO(byte_img), 'giacomo-aws-bucket', sanitized_intern_name):
+                        add_faces_to_collection('giacomo-aws-bucket', sanitized_intern_name, collection_id, sanitized_intern_name)
+                        file_extension = os.path.splitext(image_name)[1]
+                        file_metadata = {'name': f'{sanitized_intern_name}{file_extension}', 'parents': [training_images_folder_id]}
+                        service.files().copy(fileId=image_id, body=file_metadata).execute()
                     else:
                         print('Failed to upload image')
                 else:
                     print(f'{sanitized_intern_name} already in system')
-
-                # After processing the image and saving to byte_img:
-
-                
                 has_training_image = True
-                break 
-
+                break
         except Exception as e:
-            print(f"{image_name} threw an error: {e}")
-            traceback.print_exc()  # This line prints the full traceback
+            print(f"{img['name']} threw an error: {e}")
+            traceback.print_exc()
 
     if not has_training_image:
-        print(folder['name'] + 'has no training data!')
         intern_name = folder['name']
-        # split the intern_name on ' - ', and return the part before ' - '
         error_name = intern_name.split(' - ', 1)[0] if ' - ' in intern_name else intern_name
-        return error_name  # return the error_name in case of error
+        return error_name
 
-    return None  # return None if there was no error
+    return None
+
 
 def process_file(file, service, folder_id, person_images_dict, group_photo_threshold, collection_id, person_folder_dict):
     print(f"{file['name']} started")
